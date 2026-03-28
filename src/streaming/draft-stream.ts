@@ -50,12 +50,15 @@ export interface StreamInstance {
  *
  * Platform-specific implementations should extend this base.
  */
-export function createStream(config: StreamConfig = {}): StreamInstance {
+export function createStream(
+	config: StreamConfig & { sendFn?: (text: string, isFinal: boolean) => Promise<void> } = {}
+): StreamInstance {
 	const {
 		streaming = true,
 		throttleMs = 500,
 		minInitialChars = 30,
 		maxLength = 4096,
+		sendFn,
 	} = config;
 
 	let content = "";
@@ -64,9 +67,6 @@ export function createStream(config: StreamConfig = {}): StreamInstance {
 	let flushTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastFlushTime = 0;
 
-	// Platform-specific send function (to be provided by adapter)
-	let sendFn: ((text: string, isFinal: boolean) => Promise<void>) | null = null;
-
 	const stream: StreamInstance = {
 		update(text: string) {
 			if (isComplete) {
@@ -74,7 +74,7 @@ export function createStream(config: StreamConfig = {}): StreamInstance {
 			}
 			content = text;
 
-			if (!streaming) {
+			if (!streaming || !sendFn) {
 				return; // Non-streaming mode: accumulate only
 			}
 
@@ -94,11 +94,11 @@ export function createStream(config: StreamConfig = {}): StreamInstance {
 
 			if (timeSinceLastFlush >= throttleMs) {
 				// Can send immediately
-				this.flush();
+				stream.flush();
 			} else {
 				// Schedule delayed flush
 				flushTimer = setTimeout(() => {
-					this.flush();
+					stream.flush();
 				}, throttleMs - timeSinceLastFlush);
 			}
 		},
@@ -126,7 +126,7 @@ export function createStream(config: StreamConfig = {}): StreamInstance {
 			if (isComplete) return;
 			isComplete = true;
 
-			await this.flush();
+			await stream.flush();
 
 			if (sendFn) {
 				await sendFn(content, true);
@@ -140,6 +140,9 @@ export function createStream(config: StreamConfig = {}): StreamInstance {
 				flushTimer = null;
 			}
 			// Platform-specific cleanup (delete message if supported)
+			if (deleteMessage && sendFn) {
+				// Note: delete support requires platform-specific implementation
+			}
 		},
 
 		getContent(): string {

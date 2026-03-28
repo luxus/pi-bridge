@@ -132,8 +132,8 @@ export async function createSendBlueAdapter(
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"sb-api-key-id": resolvedApiKeyId,
-				"sb-api-secret-key": resolvedApiSecret,
+				"sb-api-key-id": resolvedApiKeyId!,
+				"sb-api-secret-key": resolvedApiSecret!,
 			},
 			body: JSON.stringify(body),
 		});
@@ -152,8 +152,8 @@ export async function createSendBlueAdapter(
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"sb-api-key-id": resolvedApiKeyId,
-					"sb-api-secret-key": resolvedApiSecret,
+					"sb-api-key-id": resolvedApiKeyId!,
+					"sb-api-secret-key": resolvedApiSecret!,
 				},
 				body: JSON.stringify({
 					number: toNumber,
@@ -172,8 +172,8 @@ export async function createSendBlueAdapter(
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"sb-api-key-id": resolvedApiKeyId,
-					"sb-api-secret-key": resolvedApiSecret,
+					"sb-api-key-id": resolvedApiKeyId!,
+					"sb-api-secret-key": resolvedApiSecret!,
 				},
 				body: JSON.stringify({ message_handle: messageHandle }),
 			});
@@ -192,8 +192,8 @@ export async function createSendBlueAdapter(
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"sb-api-key-id": resolvedApiKeyId,
-					"sb-api-secret-key": resolvedApiSecret,
+					"sb-api-key-id": resolvedApiKeyId!,
+					"sb-api-secret-key": resolvedApiSecret!,
 				},
 				body: JSON.stringify({
 					number: toNumber,
@@ -270,7 +270,7 @@ export async function createSendBlueAdapter(
 
 			// Register webhook handler with pi-webserver if available
 			// This is done via event bus - the webserver extension will pick it up
-			context.events.emit("web:mount-api", {
+			context.events?.emit("web:mount-api", {
 				prefix: webhookPath,
 				handler: (req: any, res: any) => {
 					if (req.method !== "POST") {
@@ -291,13 +291,6 @@ export async function createSendBlueAdapter(
 		async stop(): Promise<void> {
 			running = false;
 			onMessageCallback = null;
-		},
-
-		// Additional capabilities exposed for advanced use
-		capabilities: {
-			sendReaction,
-			sendTypingIndicator,
-			sendReadReceipt,
 		},
 	};
 }

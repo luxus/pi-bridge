@@ -63,11 +63,13 @@ export function saveIncomingMessage(message: IncomingMessage): void {
 	}
 	
 	// Add new message
-	const attachments = message.attachments?.map((att: {filename?: string, path: string, type: string}) => ({
-		filename: att.filename || path.basename(att.path),
-		path: att.path,
-		type: att.type,
-	}));
+	const attachments = message.attachments
+		?.filter((att): att is typeof att & { path: string } => !!att.path)
+		.map((att) => ({
+			filename: att.filename || path.basename(att.path),
+			path: att.path,
+			type: att.type,
+		}));
 	
 	session.messages.push({
 		timestamp: new Date().toISOString(),

@@ -34,6 +34,9 @@ const BRIDGE_DEFAULTS: Required<BridgeConfig> = {
 	typingIndicators: true,
 	commands: true,
 	extensions: [],
+	streaming: true,
+	streamingThrottleMs: 500,
+	streamingMinChars: 30,
 };
 
 type LogFn = (event: string, data: unknown, level?: string) => void;

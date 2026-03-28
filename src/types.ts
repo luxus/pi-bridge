@@ -38,7 +38,9 @@ export interface IncomingAttachment {
 	/** Attachment type */
 	type: "image" | "document" | "audio";
 	/** Local file path (temporary, downloaded by the adapter) */
-	path: string;
+	path?: string;
+	/** Remote URL (if media is hosted externally, e.g. SendBlue media_url) */
+	url?: string;
 	/** Original filename (if available) */
 	filename?: string;
 	/** MIME type */

@@ -190,7 +190,7 @@ export class RpcSession {
 			if (options?.attachments?.length) {
 				const images: Array<Record<string, string>> = [];
 				for (const att of options.attachments) {
-					if (att.type === "image" || att.type === "document") {
+					if ((att.type === "image" || att.type === "document") && att.path) {
 						try {
 							const fs = await import("node:fs");
 							const data = fs.readFileSync(att.path).toString("base64");
