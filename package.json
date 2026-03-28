@@ -1,0 +1,39 @@
+{
+  "name": "@luxus/pi-bridge",
+  "version": "0.1.0",
+  "description": "Multi-platform messaging bridge for Pi — Telegram, SendBlue (iMessage/SMS), Discord with streaming",
+  "keywords": ["pi-package", "telegram", "imessage", "sms", "discord", "messaging", "bridge"],
+  "license": "MIT",
+  "author": "luxus",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luxus/pi-bridge.git"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
+  },
+  "dependencies": {},
+  "files": [
+    "CHANGELOG.md",
+    "README.md",
+    "package.json",
+    "src"
+  ]
+}
