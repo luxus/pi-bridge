@@ -809,6 +809,12 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 		},
 
 		async send(message: ChannelMessage): Promise<void> {
+			console.log(`[DEBUG Telegram] send() called with:`, JSON.stringify({
+				text: message.text?.slice(0, 50),
+				recipient: message.recipient,
+				metadata: message.metadata
+			}));
+			
 			if (!message.text) {
 				throw new Error("Telegram adapter requires text");
 			}
