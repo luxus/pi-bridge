@@ -166,6 +166,15 @@ export interface StreamHandle {
 
 // ── Config (lives under "pi-bridge" key in pi settings.json) ──
 
+export interface SecurityConfig {
+	/** List of trusted chat/user IDs that can access tools and skills */
+	trustedChatIds: string[];
+	/** Permissions granted to trusted users */
+	trustedPermissions: Record<string, boolean>;
+	/** Permissions granted to untrusted users */
+	untrustedPermissions: Record<string, boolean>;
+}
+
 export interface AdapterConfig {
 	type: string;
 	[key: string]: unknown;
@@ -242,6 +251,8 @@ export interface ChannelConfig {
 	bridge?: BridgeConfig;
 	/** Scheduler configuration. */
 	scheduler?: SchedulerConfig;
+	/** Security configuration for trusted user system. */
+	security?: SecurityConfig;
 }
 
 // ── Scheduler types ─────────────────────────────────────────────

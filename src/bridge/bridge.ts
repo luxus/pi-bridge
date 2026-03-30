@@ -14,6 +14,7 @@ import type {
 	SenderSession,
 	BridgeConfig,
 	StreamHandle,
+	SecurityConfig,
 } from "../types.ts";
 import type { ChannelRegistry } from "../registry.ts";
 import type { EventBus } from "@mariozechner/pi-coding-agent";
@@ -22,6 +23,7 @@ import { RpcSessionManager } from "./rpc-runner.ts";
 import { isCommand, handleCommand, type CommandContext } from "./commands.ts";
 import { startTyping } from "./typing.ts";
 import { saveIncomingMessage, saveAssistantResponse, getRecentContext, formatContextForPrompt } from "../chat-history.ts";
+import { ToolProxy } from "./tool-proxy.ts";
 
 const BRIDGE_DEFAULTS: Required<BridgeConfig> = {
 	enabled: false,
@@ -49,6 +51,7 @@ function nextId(): string {
 
 export class ChatBridge {
 	private config: Required<BridgeConfig>;
+	private securityConfig: SecurityConfig | undefined;
 	private cwd: string;
 	private registry: ChannelRegistry;
 	private events: EventBus;
@@ -57,15 +60,18 @@ export class ChatBridge {
 	private activeCount = 0;
 	private running = false;
 	private rpcManager: RpcSessionManager | null = null;
+	private toolProxy: ToolProxy | null = null;
 
 	constructor(
 		bridgeConfig: BridgeConfig | undefined,
+		securityConfig: SecurityConfig | undefined,
 		cwd: string,
 		registry: ChannelRegistry,
 		events: EventBus,
 		log: LogFn = () => {},
 	) {
 		this.config = { ...BRIDGE_DEFAULTS, ...bridgeConfig };
+		this.securityConfig = securityConfig;
 		this.cwd = cwd;
 		this.registry = registry;
 		this.events = events;
@@ -88,6 +94,17 @@ export class ChatBridge {
 			},
 			this.config.idleTimeoutMinutes * 60_000,
 		);
+
+		// Initialize tool proxy for trusted user system
+		this.toolProxy = new ToolProxy(
+			this.securityConfig,
+			{
+				cwd: this.cwd,
+				timeoutMs: this.config.timeoutMs,
+				model: this.config.model,
+				log: this.log,
+			},
+		);
 	}
 
 	stop(): void {
@@ -99,19 +116,24 @@ export class ChatBridge {
 		this.activeCount = 0;
 		this.rpcManager?.killAll();
 		this.rpcManager = null;
+		this.toolProxy = null;
 	}
 
 	isActive(): boolean {
 		return this.running;
 	}
 
-	updateConfig(cfg: BridgeConfig): void {
+	updateConfig(cfg: BridgeConfig, securityCfg?: SecurityConfig): void {
 		this.config = { ...BRIDGE_DEFAULTS, ...cfg };
+		if (securityCfg !== undefined) {
+			this.securityConfig = securityCfg;
+			this.toolProxy?.updateConfig(securityCfg);
+		}
 	}
 
 	// ── Main entry point ──────────────────────────────────────
 
-	handleMessage(message: IncomingMessage): void {
+	async handleMessage(message: IncomingMessage): Promise<void> {
 		if (!this.running) {
 			return;
 		}
@@ -129,6 +151,28 @@ export class ChatBridge {
 		}
 
 		const senderKey = `${message.adapter}:${message.sender}`;
+
+		// Add trust metadata
+		const isTrusted = this.toolProxy?.isTrusted(message.sender) ?? false;
+		message.metadata = {
+			...message.metadata,
+			isTrusted,
+			trustLevel: isTrusted ? "trusted" : "untrusted",
+		};
+
+		// Check for direct tool invocations (e.g., "/read file.txt")
+		if (text && text.startsWith("/")) {
+			const toolResult = await this.handleToolInvocation(text, message);
+			if (toolResult) {
+				// Tool was handled (either executed or permission denied)
+				if (!toolResult.ok) {
+					this.sendReply(message.adapter, message.sender, `❌ ${toolResult.error || "Tool execution failed"}`);
+				} else {
+					this.sendReply(message.adapter, message.sender, toolResult.response || "✓ Done");
+				}
+				return;
+			}
+		}
 
 		// Get or create session
 		let session = this.sessions.get(senderKey);
@@ -469,6 +513,41 @@ export class ChatBridge {
 
 	private sendReply(adapter: string, recipient: string, text: string): void {
 		this.registry.send({ adapter, recipient, text });
+	}
+
+	// ── Tool invocation handling ──────────────────────────────
+
+	/**
+	 * Handle direct tool invocations from messages.
+	 * Returns null if not a tool invocation, or ToolResult if handled.
+	 */
+	private async handleToolInvocation(
+		text: string,
+		message: IncomingMessage,
+	): Promise<import("./tool-proxy.ts").ToolResult | null> {
+		if (!this.toolProxy) return null;
+
+		// Parse tool command: /tool arg1 arg2...
+		const match = text.match(/^\/([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(.*))?$/);
+		if (!match) return null;
+
+		const tool = match[1];
+		const argsStr = match[2] || "";
+		const args = argsStr.trim() ? argsStr.trim().split(/\s+/) : [];
+
+		// List of tools we handle directly
+		const knownTools = ["read", "write", "shell", "web_search", "notify", "tts"];
+		if (!knownTools.includes(tool)) {
+			// Might be a skill - let the agent handle it
+			return null;
+		}
+
+		// Execute the tool
+		return this.toolProxy.executeTool(tool, args, {
+			sender: message.sender,
+			adapter: message.adapter,
+			metadata: message.metadata,
+		});
 	}
 }
 

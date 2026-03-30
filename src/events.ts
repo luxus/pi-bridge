@@ -35,7 +35,7 @@ export function registerBridgeEvents(pi: ExtensionAPI, registry: ChannelRegistry
 
 		// Route to bridge if active
 		if (activeBridge?.isActive()) {
-			activeBridge.handleMessage(message);
+			activeBridge.handleMessage(message).catch(() => {});
 		} else {
 		}
 	});

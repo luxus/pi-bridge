@@ -33,7 +33,7 @@
  */
 
 import { getAgentDir, SettingsManager } from "@mariozechner/pi-coding-agent";
-import type { ChannelConfig } from "./types.ts";
+import type { ChannelConfig, SecurityConfig } from "./types.ts";
 
 const SETTINGS_KEY = "pi-bridge";
 
@@ -68,12 +68,32 @@ export function loadConfig(cwd: string): ChannelConfig {
 				...(projectCh.scheduler?.jobs ?? {}),
 			},
 		} as ChannelConfig["scheduler"],
+		security: mergeSecurityConfig(globalCh.security, projectCh.security),
 	};
 
 	// Env vars override settings.json values
 	applyEnvOverrides(merged);
 
 	return merged;
+}
+
+/**
+ * Merge security config from global and project settings.
+ * Project settings override global for each field.
+ */
+function mergeSecurityConfig(
+	global: SecurityConfig | undefined,
+	project: SecurityConfig | undefined,
+): SecurityConfig | undefined {
+	if (!global && !project) return undefined;
+	if (!global) return project;
+	if (!project) return global;
+
+	return {
+		trustedChatIds: [...(global.trustedChatIds ?? []), ...(project.trustedChatIds ?? [])],
+		trustedPermissions: { ...global.trustedPermissions, ...project.trustedPermissions },
+		untrustedPermissions: { ...global.untrustedPermissions, ...project.untrustedPermissions },
+	};
 }
 
 /**

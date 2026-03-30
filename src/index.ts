@@ -93,7 +93,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Initialize bridge
-		bridge = new ChatBridge(config.bridge, ctx.cwd, registry, pi.events, log);
+		bridge = new ChatBridge(config.bridge, config.security, ctx.cwd, registry, pi.events, log);
 		setBridge(bridge);
 
 		const flagEnabled = pi.getFlag("--chat-bridge");
