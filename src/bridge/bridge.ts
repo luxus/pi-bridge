@@ -284,7 +284,11 @@ export class ChatBridge {
 		const promptWithContext = contextText + "\n" + senderContext + "\n\n" + originalText;
 		prompt.text = promptWithContext;
 
-		const useStreaming = this.config.streaming && typeof adapter.createStream === "function";
+		const voiceRequested = prompt.metadata?.voiceRequested === true;
+		console.log(`[DEBUG] voiceRequested: ${voiceRequested}, metadata:`, JSON.stringify(prompt.metadata));
+		
+		// Disable streaming for voice messages (TTS requires complete text)
+		const useStreaming = !voiceRequested && this.config.streaming && typeof adapter.createStream === "function";
 		let stream: StreamHandle | null = null;
 		let streamedText = "";
 
