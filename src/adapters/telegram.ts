@@ -244,11 +244,17 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 			body: JSON.stringify(body),
 		});
 		if (!res.ok) {
-			// Silently ignore "message is not modified" errors
 			const err = await res.text().catch(() => "");
-			if (!err.includes("message is not modified")) {
-				throw new Error(`Telegram editMessageText error ${res.status}: ${err}`);
+			// Silently ignore "message is not modified" errors
+			if (err.includes("message is not modified")) {
+				return;
 			}
+			// Handle rate limiting (429) - silently skip this update
+			if (res.status === 429) {
+				console.log(`[pi-bridge] Telegram rate limit hit, skipping update`);
+				return;
+			}
+			throw new Error(`Telegram editMessageText error ${res.status}: ${err}`);
 		}
 	}
 

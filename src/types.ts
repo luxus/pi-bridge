@@ -267,3 +267,27 @@ export interface RunResult {
 	durationMs: number;
 	exitCode: number;
 }
+
+/** Options for running a prompt via subprocess (stateless mode). */
+export interface RunOptions {
+	prompt: string;
+	cwd: string;
+	timeoutMs: number;
+	model?: string | null;
+	signal?: AbortSignal;
+	attachments?: IncomingAttachment[];
+extensions?: string[];
+	onData?: (chunk: string) => void;
+	/** Sender identifier for context */
+	sender?: string;
+	/** Additional metadata about the message */
+	metadata?: Record<string, unknown>;
+}
+
+/** Options for RPC runner (persistent mode). */
+export interface RpcRunnerOptions {
+	cwd: string;
+	model?: string | null;
+	timeoutMs: number;
+extensions?: string[];
+}

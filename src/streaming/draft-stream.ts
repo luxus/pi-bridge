@@ -275,8 +275,8 @@ export function createTelegramStream(
 			}
 
 			if (!hasStarted) {
+				hasStarted = true; // Set BEFORE async call to prevent race condition
 				await sendInitial(text);
-				hasStarted = true;
 			} else {
 				await updateMessage(text);
 			}

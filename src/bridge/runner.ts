@@ -21,10 +21,14 @@ export interface RunOptions {
 	extensions?: string[];
 	/** Streaming callback — called with each stdout chunk as it arrives. */
 	onData?: (chunk: string) => void;
+	/** Sender identifier for context (e.g., telegram chat ID). */
+	sender?: string;
+	/** Additional metadata about the incoming message. */
+	metadata?: Record<string, unknown>;
 }
 
 export function runPrompt(options: RunOptions): Promise<RunResult> {
-	const { prompt, cwd, timeoutMs, model, signal, attachments, extensions, onData } = options;
+	const { prompt, cwd, timeoutMs, model, signal, attachments, extensions, onData, sender, metadata } = options;
 
 	return new Promise((resolve) => {
 		const startTime = Date.now();
@@ -48,12 +52,17 @@ export function runPrompt(options: RunOptions): Promise<RunResult> {
 
 		args.push(prompt);
 
+		// Prepare environment with sender context
+		const env: NodeJS.ProcessEnv = { ...process.env };
+		if (sender) env.PI_BRIDGE_SENDER = sender;
+		if (metadata) env.PI_BRIDGE_METADATA = JSON.stringify(metadata);
+
 		let child: ChildProcess;
 		try {
 			child = spawn("pi", args, {
 				cwd,
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env,
 				timeout: timeoutMs,
 			});
 		} catch (err: any) {

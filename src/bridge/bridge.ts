@@ -226,8 +226,14 @@ export class ChatBridge {
 		// Get chat context for this sender
 		const recentContext = getRecentContext(prompt.sender);
 		const contextText = formatContextForPrompt(recentContext);
+		
+		// Build sender context header for the agent
+		const senderName = prompt.metadata?.firstName || prompt.metadata?.username || "User";
+		const senderId = prompt.sender;
+		const senderContext = `[Message from ${senderName} (ID: ${senderId}) via ${prompt.adapter}]`;
+		
 		const originalText = prompt.text;
-		const promptWithContext = contextText + "\n" + originalText;
+		const promptWithContext = contextText + "\n" + senderContext + "\n\n" + originalText;
 		prompt.text = promptWithContext;
 
 		const useStreaming = this.config.streaming && typeof adapter.createStream === "function";
@@ -269,6 +275,8 @@ export class ChatBridge {
 					attachments: prompt.attachments,
 					extensions: this.config.extensions,
 					onData: stream ? onStreamingChunk : undefined,
+					sender: prompt.sender,
+					metadata: prompt.metadata,
 				});
 			}
 
@@ -340,6 +348,8 @@ export class ChatBridge {
 				signal,
 				attachments: prompt.attachments,
 				onStreaming,
+				sender: prompt.sender,
+				metadata: prompt.metadata,
 			});
 		} catch (err: any) {
 			return {

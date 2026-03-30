@@ -116,6 +116,8 @@ export class RpcSession {
 			signal?: AbortSignal;
 			attachments?: IncomingAttachment[];
 			onStreaming?: (text: string) => void;
+			sender?: string;
+			metadata?: Record<string, unknown>;
 		},
 	): Promise<RunResult> {
 		return new Promise(async (resolve) => {
@@ -180,11 +182,15 @@ export class RpcSession {
 					options.signal?.removeEventListener("abort", onAbort);
 			}
 
-			// Build prompt command
+			// Build prompt command with sender context
 			const cmd: Record<string, unknown> = {
 				type: "prompt",
 				message: prompt,
 			};
+
+			// Add sender context if available
+			if (options?.sender) cmd.sender = options.sender;
+			if (options?.metadata) cmd.metadata = options.metadata;
 
 			// Attach images and documents as base64
 			if (options?.attachments?.length) {
