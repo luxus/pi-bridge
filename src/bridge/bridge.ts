@@ -538,6 +538,7 @@ export class ChatBridge {
 	// ── Reply ─────────────────────────────────────────────────
 
 	private sendReply(adapter: string, recipient: string, text: string, voiceRequested: boolean = false): void {
+		console.log(`[DEBUG Bridge] sendReply called: adapter=${adapter}, voiceRequested=${voiceRequested}`);
 		if (voiceRequested) {
 			this.registry.send({ 
 				adapter, 
