@@ -144,9 +144,12 @@ export class ChatBridge {
 			return;
 		}
 
+		// Detect if user requested voice message
+		const voiceRequested = text ? this.detectVoiceRequest(text) : false;
+
 		// Rejected messages (too large, unsupported type) — send back directly
 		if (message.metadata?.rejected) {
-			this.sendReply(message.adapter, message.sender, text || "⚠️ Unsupported message.");
+			this.sendReply(message.adapter, message.sender, text || "⚠️ Unsupported message.", voiceRequested);
 			return;
 		}
 
@@ -158,6 +161,7 @@ export class ChatBridge {
 			...message.metadata,
 			isTrusted,
 			trustLevel: isTrusted ? "trusted" : "untrusted",
+			voiceRequested,
 		};
 
 		// Check for direct tool invocations (e.g., "/read file.txt")
@@ -326,30 +330,31 @@ export class ChatBridge {
 
 			typing.stop();
 
-			if (result.ok) {
-				saveAssistantResponse(prompt.sender, result.response, prompt.adapter);
-				if (stream && stream.isActive()) {
-				streamedText = result.response;
-				stream.update(streamedText);
-					await stream.finalize();
-				} else {
-					this.sendReply(prompt.adapter, prompt.sender, result.response);
-				}
-			} else if (result.error === "Aborted by user") {
-				if (stream && stream.isActive()) {
-					await stream.abort(true);
-				}
-				this.sendReply(prompt.adapter, prompt.sender, "⏹ Aborted.");
+		if (result.ok) {
+			saveAssistantResponse(prompt.sender, result.response, prompt.adapter);
+			const voiceRequested = prompt.metadata?.voiceRequested === true;
+			if (stream && stream.isActive()) {
+			streamedText = result.response;
+			stream.update(streamedText);
+				await stream.finalize();
 			} else {
-				if (stream && stream.isActive()) {
-					await stream.abort(true);
-				}
-				const userError = sanitizeError(result.error);
-				this.sendReply(
-					prompt.adapter, prompt.sender,
-					result.response || `❌ ${userError}`,
-				);
+				this.sendReply(prompt.adapter, prompt.sender, result.response, voiceRequested);
 			}
+		} else if (result.error === "Aborted by user") {
+			if (stream && stream.isActive()) {
+				await stream.abort(true);
+			}
+			this.sendReply(prompt.adapter, prompt.sender, "⏹ Aborted.");
+		} else {
+			if (stream && stream.isActive()) {
+				await stream.abort(true);
+			}
+			const userError = sanitizeError(result.error);
+			this.sendReply(
+				prompt.adapter, prompt.sender,
+				result.response || `❌ ${userError}`,
+			);
+		}
 
 			this.events.emit("bridge:complete", {
 				id: prompt.id, adapter: prompt.adapter, sender: prompt.sender,
@@ -509,10 +514,39 @@ export class ChatBridge {
 		};
 	}
 
+	// ── Voice detection ──────────────────────────────────────
+
+	private detectVoiceRequest(text: string): boolean {
+		const voicePatterns = [
+			/sprachnachricht/i,
+			/voice message/i,
+			/als voice/i,
+			/als sprache/i,
+			/per voice/i,
+			/per sprachnachricht/i,
+			/send.*als.*voice/i,
+			/send.*als.*sprache/i,
+			/antworte.*voice/i,
+			/antworte.*sprach/i,
+			/kannst du.*voice/i,
+			/kannst du.*sprach/i,
+		];
+		return voicePatterns.some(pattern => pattern.test(text));
+	}
+
 	// ── Reply ─────────────────────────────────────────────────
 
-	private sendReply(adapter: string, recipient: string, text: string): void {
-		this.registry.send({ adapter, recipient, text });
+	private sendReply(adapter: string, recipient: string, text: string, voiceRequested: boolean = false): void {
+		if (voiceRequested) {
+			this.registry.send({ 
+				adapter, 
+				recipient, 
+				text,
+				metadata: { voice: true }
+			});
+		} else {
+			this.registry.send({ adapter, recipient, text });
+		}
 	}
 
 	// ── Tool invocation handling ──────────────────────────────
