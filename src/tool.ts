@@ -17,6 +17,7 @@ interface BridgeToolParams {
 	payloadMode?: "envelope" | "raw";
 	method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
 	contentType?: string;
+	voice?: boolean;
 }
 
 export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry): void {
@@ -60,6 +61,9 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 			),
 			contentType: Type.Optional(
 				Type.String({ description: "Content-Type header override for webhook raw mode" }),
+			),
+			voice: Type.Optional(
+				Type.Boolean({ description: "Send as voice message (TTS). Requires TTS to be configured for the adapter." }),
 			),
 		}) as any,
 
@@ -123,17 +127,18 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 						}
 					}
 
-					const r = await registry.send({
-						adapter: params.adapter,
-						recipient: params.recipient ?? "",
-						text: params.text,
-						source: params.source,
-						payloadMode,
-						rawBody: parsedJson,
-						webhook: payloadMode === "raw"
-							? { method: params.method, contentType: params.contentType }
-							: undefined,
-					});
+				const r = await registry.send({
+					adapter: params.adapter,
+					recipient: params.recipient ?? "",
+					text: params.text,
+					source: params.source,
+					payloadMode,
+					rawBody: parsedJson,
+					webhook: payloadMode === "raw"
+						? { method: params.method, contentType: params.contentType }
+						: undefined,
+					metadata: params.voice ? { voice: true } : undefined,
+				});
 					result = r.ok
 						? `✓ Sent via "${params.adapter}"${params.recipient ? ` to ${params.recipient}` : ""}`
 						: `Failed: ${r.error}`;

@@ -72,6 +72,40 @@ export interface TranscriptionConfig {
 	language?: string;
 }
 
+// ── TTS config ──────────────────────────────────────────────────
+
+export interface TTSConfig {
+	/** Enable text-to-speech (default: false) */
+	enabled: boolean;
+	/**
+	 * TTS provider:
+	 * - "apple"      — macOS `say` command (free, offline, no API key)
+	 * - "openai"     — OpenAI TTS API (tts-1, tts-1-hd)
+	 * - "elevenlabs" — ElevenLabs TTS API
+	 */
+	provider: "apple" | "openai" | "elevenlabs";
+	/**
+	 * API key for cloud providers. Optional for OpenAI if pi has authentication configured.
+	 * Put the key value directly in settings.json. Not needed for apple provider.
+	 */
+	apiKey?: string;
+	/**
+	 * Model name (provider-specific):
+	 * - OpenAI: "tts-1", "tts-1-hd" (default: "tts-1")
+	 * - ElevenLabs: "eleven_multilingual_v2", "eleven_turbo_v2_5" (default: "eleven_multilingual_v2")
+	 */
+	model?: string;
+	/**
+	 * Voice identifier (provider-specific):
+	 * - OpenAI: "alloy", "echo", "fable", "onyx", "nova", "shimmer" (default: "alloy")
+	 * - ElevenLabs: voice ID (default: "21m00Tcm4TlvDq8ikWAM" - Rachel)
+	 * - Apple: voice name from `say -v ?` (default: system default)
+	 */
+	voice?: string;
+	/** Speech speed multiplier, 0.25 to 4.0 (default: 1.0) */
+	speed?: number;
+}
+
 export interface IncomingMessage {
 	/** Which adapter received this */
 	adapter: string;

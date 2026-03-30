@@ -36,10 +36,12 @@ import type {
 	IncomingMessage,
 	IncomingAttachment,
 	TranscriptionConfig,
+	TTSConfig,
 	StreamHandle,
 } from "../types.ts";
 import type { AdapterFactoryContext } from "../registry.ts";
 import { createTranscriptionProvider, type TranscriptionProvider } from "./transcription.ts";
+import { createTTSProvider, type TTSProvider } from "./tts.ts";
 import { markdownToTelegramHtml } from "../formatting/telegram-html.ts";
 import { createTelegramStream, type StreamInstance, type StreamConfig } from "../streaming/draft-stream.ts";
 
@@ -162,6 +164,19 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 		}
 	}
 
+	// ── TTS setup ─────────────────────────────────────────────
+	const ttsConfig = config.tts as TTSConfig | undefined;
+	let ttsProvider: TTSProvider | null = null;
+	let ttsError: string | null = null;
+	if (ttsConfig?.enabled) {
+		try {
+			ttsProvider = await createTTSProvider(ttsConfig, context.modelRegistry);
+		} catch (err: any) {
+			ttsError = err.message ?? "Unknown TTS config error";
+			console.error(`[pi-bridge] TTS config error: ${ttsError}`);
+		}
+	}
+
 	const apiBase = `https://api.telegram.org/bot${botToken}`;
 	let offset = 0;
 	let running = false;
@@ -198,6 +213,30 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 			});
 		} catch {
 			// Best-effort
+		}
+	}
+
+	/**
+	 * Send a voice message to Telegram.
+	 * Uses multipart/form-data for file upload.
+	 */
+	async function sendVoice(chatId: string, audioPath: string, caption?: string): Promise<void> {
+		const form = new FormData();
+		form.append("chat_id", chatId);
+		const audioBuffer = fs.readFileSync(audioPath);
+		form.append("voice", new Blob([audioBuffer]), "voice.ogg");
+		if (caption) {
+			form.append("caption", caption);
+		}
+
+		const res = await fetch(`${apiBase}/sendVoice`, {
+			method: "POST",
+			body: form,
+		});
+
+		if (!res.ok) {
+			const err = await res.text().catch(() => "unknown error");
+			throw new Error(`Telegram sendVoice error ${res.status}: ${err}`);
 		}
 	}
 
@@ -769,6 +808,32 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 			if (!message.text) {
 				throw new Error("Telegram adapter requires text");
 			}
+
+			// Check if voice message is requested via metadata
+			const voiceRequested = message.metadata?.voice === true;
+
+			if (voiceRequested && ttsProvider) {
+				// Generate voice message using TTS
+				const result = await ttsProvider.synthesize(message.text);
+				if (result.ok && result.audioPath) {
+					try {
+						await sendVoice(message.recipient, result.audioPath, message.source);
+					} finally {
+						// Clean up the temporary audio file
+						try {
+							fs.unlinkSync(result.audioPath);
+						} catch {
+							/* ignore */
+						}
+					}
+					return;
+				} else if (voiceRequested && !ttsProvider) {
+					// Fall back to text if TTS is not available
+					console.error(`[pi-bridge] TTS requested but not available${ttsError ? `: ${ttsError}` : ""}`);
+				}
+			}
+
+			// Send as regular text message
 			const prefix = message.source ? `[${message.source}]\n` : "";
 			const full = prefix + message.text;
 
