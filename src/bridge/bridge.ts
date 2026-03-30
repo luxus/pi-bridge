@@ -285,7 +285,6 @@ export class ChatBridge {
 		prompt.text = promptWithContext;
 
 		const voiceRequested = prompt.metadata?.voiceRequested === true;
-		console.log(`[DEBUG] voiceRequested: ${voiceRequested}, metadata:`, JSON.stringify(prompt.metadata));
 		
 		// Disable streaming for voice messages (TTS requires complete text)
 		const useStreaming = !voiceRequested && this.config.streaming && typeof adapter.createStream === "function";
@@ -337,7 +336,6 @@ export class ChatBridge {
 		if (result.ok) {
 			saveAssistantResponse(prompt.sender, result.response, prompt.adapter);
 			const voiceRequested = prompt.metadata?.voiceRequested === true;
-			console.log(`[DEBUG] voiceRequested: ${voiceRequested}, metadata:`, JSON.stringify(prompt.metadata));
 			if (stream && stream.isActive()) {
 			streamedText = result.response;
 			stream.update(streamedText);
@@ -542,7 +540,6 @@ export class ChatBridge {
 	// ── Reply ─────────────────────────────────────────────────
 
 	private sendReply(adapter: string, recipient: string, text: string, voiceRequested: boolean = false): void {
-		console.log(`[DEBUG Bridge] sendReply called: adapter=${adapter}, voiceRequested=${voiceRequested}`);
 		if (voiceRequested) {
 			this.registry.send({ 
 				adapter, 

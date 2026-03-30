@@ -168,17 +168,13 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 	const ttsConfig = config.tts as TTSConfig | undefined;
 	let ttsProvider: TTSProvider | null = null;
 	let ttsError: string | null = null;
-	console.log(`[DEBUG Telegram] TTS config:`, JSON.stringify(ttsConfig));
 	if (ttsConfig?.enabled) {
 		try {
 			ttsProvider = await createTTSProvider(ttsConfig, context.modelRegistry);
-			console.log(`[DEBUG Telegram] TTS provider initialized successfully`);
 		} catch (err: any) {
 			ttsError = err.message ?? "Unknown TTS config error";
 			console.error(`[pi-bridge] TTS config error: ${ttsError}`);
 		}
-	} else {
-		console.log(`[DEBUG Telegram] TTS not enabled`);
 	}
 
 	const apiBase = `https://api.telegram.org/bot${botToken}`;
@@ -809,19 +805,12 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 		},
 
 		async send(message: ChannelMessage): Promise<void> {
-			console.log(`[DEBUG Telegram] send() called with:`, JSON.stringify({
-				text: message.text?.slice(0, 50),
-				recipient: message.recipient,
-				metadata: message.metadata
-			}));
-			
 			if (!message.text) {
 				throw new Error("Telegram adapter requires text");
 			}
 
 			// Check if voice message is requested via metadata
 			const voiceRequested = message.metadata?.voice === true;
-			console.log(`[DEBUG Telegram] voiceRequested: ${voiceRequested}, ttsProvider: ${ttsProvider ? "initialized" : "null"}, ttsError: ${ttsError}`);
 
 			if (voiceRequested && ttsProvider) {
 				// Generate voice message using TTS
