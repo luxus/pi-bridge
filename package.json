@@ -1,27 +1,24 @@
 {
-  "name": "@luxus/pi-bridge",
-  "version": "0.1.0",
-  "description": "Multi-platform messaging bridge for Pi — Telegram, SendBlue (iMessage/SMS), Discord with streaming",
-  "keywords": ["pi-package", "telegram", "imessage", "sms", "discord", "messaging", "bridge"],
+  "name": "@e9n/pi-bridge",
+  "version": "0.3.0",
+  "description": "Multi-platform messaging bridge for pi — bidirectional channels for Telegram, Slack, Discord, iMessage, and more",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
-  "author": "luxus",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/luxus/pi-bridge.git"
+  "author": "Espen Nilsen <hi@e9n.dev>",
+  "scripts": {
+    "test": "node --import=tsx --test src/**/__tests__/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "pi": {
     "extensions": [
       "./src/index.ts"
     ]
   },
-  "type": "module",
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "tsc",
-    "dev": "tsc --watch"
-  },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
@@ -29,11 +26,23 @@
     "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "*"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@slack/socket-mode": "^2.0.5",
+    "@slack/web-api": "^7.14.1",
+    "discord.js": "^14.25.1"
+  },
+  "optionalDependencies": {
+    "markitdown": "github:microsoft/markitdown"
+  },
   "files": [
     "CHANGELOG.md",
     "README.md",
     "package.json",
     "src"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/espennilsen/pi.git",
+    "directory": "extensions/pi-bridge"
+  }
 }

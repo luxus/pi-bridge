@@ -1,5 +1,5 @@
 /**
- * pi-channels — Pluggable audio transcription.
+ * pi-bridge — Pluggable audio transcription.
  *
  * Supports three providers:
  *   - "apple"      — macOS SFSpeechRecognizer (free, offline, no API key)
@@ -294,7 +294,7 @@ class ElevenLabsProvider implements TranscriptionProvider {
 		if (!key) {
 			throw new Error(
 				"ElevenLabs transcription requires API key. " +
-				"Set apiKey in settings.json under pi-channels transcription config."
+				"Set apiKey in settings.json under pi-bridge transcription config."
 			);
 		}
 		return new ElevenLabsProvider(key, config.model || "scribe_v1", config.language);

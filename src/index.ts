@@ -1,16 +1,10 @@
 /**
- * pi-bridge — Multi-platform messaging bridge for Pi.
+ * pi-bridge — Two-way channel extension for pi.
  *
  * Routes messages between agents and external services
- * (Telegram, SendBlue/iMessage, webhooks, custom adapters).
+ * (Telegram, webhooks, custom adapters).
  *
- * Enhanced version of pi-channels with streaming text support.
- *
- * Built-in adapters:
- *   - telegram (bidirectional with streaming)
- *   - sendblue (bidirectional - iMessage/SMS/RCS via SendBlue API)
- *   - webhook (outgoing)
- *
+ * Built-in adapters: telegram (bidirectional), webhook (outgoing)
  * Custom adapters: register via pi.events.emit("bridge:register", ...)
  *
  * Chat bridge: when enabled, incoming messages are routed to the agent
@@ -23,16 +17,18 @@
  * {
  *   "pi-bridge": {
  *     "adapters": {
- *       "telegram": { "type": "telegram", "botToken": "your-token", "polling": true },
- *       "sendblue": { "type": "sendblue", "apiKeyId": "...", "apiSecret": "..." }
+ *       "telegram": { "type": "telegram", "botToken": "your-telegram-bot-token", "polling": true }
  *     },
  *     "routes": {
  *       "ops": { "adapter": "telegram", "recipient": "-100987654321" }
  *     },
  *     "bridge": {
  *       "enabled": false,
- *       "streaming": true,
- *       "typingIndicators": true
+ *       "maxQueuePerSender": 5,
+ *       "timeoutMs": 300000,
+ *       "maxConcurrent": 2,
+ *       "typingIndicators": true,
+ *       "commands": true
  *     }
  *   }
  * }
@@ -46,12 +42,15 @@ import { registerBridgeTool } from "./tool.ts";
 import { ChatBridge } from "./bridge/bridge.ts";
 import { getAllCommands } from "./bridge/commands.ts";
 import { createLogger } from "./logger.ts";
+import { initChatHistory } from "./chat-history.ts";
+import { Scheduler } from "./scheduler/scheduler.ts";
 
 export default function (pi: ExtensionAPI) {
 	const log = createLogger(pi);
 	const registry = new ChannelRegistry();
 	registry.setLogger(log);
 	let bridge: ChatBridge | null = null;
+	let scheduler: Scheduler | null = null;
 
 	// ── Flag: --chat-bridge ───────────────────────────────────
 
@@ -61,7 +60,7 @@ export default function (pi: ExtensionAPI) {
 		default: false,
 	});
 
-	// ── Event API ──────────────────────────────────────────
+	// ── Event API + cron integration ──────────────────────────
 
 	registerBridgeEvents(pi, registry);
 
@@ -69,6 +68,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const config = loadConfig(ctx.cwd);
+		initChatHistory(ctx.cwd);
 		registry.setModelRegistry(ctx.modelRegistry);
 		registry.setEvents(pi.events);
 		await registry.loadConfig(config, ctx.cwd);
@@ -102,12 +102,21 @@ export default function (pi: ExtensionAPI) {
 			log("bridge-start", {});
 			ctx.ui.notify("pi-bridge: Chat bridge started", "info");
 		}
+
+		// Initialize scheduler
+		if (config.scheduler?.enabled && config.scheduler?.jobs) {
+			scheduler = new Scheduler(config.scheduler, ctx.cwd, registry, pi.events, log);
+			scheduler.start();
+			log("scheduler-start", { jobs: Object.keys(config.scheduler.jobs) });
+		}
 	});
 
 	pi.on("session_shutdown", async () => {
 		if (bridge?.isActive()) log("bridge-stop", {});
 		bridge?.stop();
 		setBridge(null);
+		scheduler?.stop();
+		scheduler = null;
 		await registry.stopAll();
 	});
 
@@ -161,6 +170,34 @@ export default function (pi: ExtensionAPI) {
 				`Queued: ${stats.totalQueued}`,
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	// ── Command: /scheduler ───────────────────────────────────
+
+	pi.registerCommand("scheduler", {
+		description: "Manage scheduler: /scheduler [status|run <job>]",
+		getArgumentCompletions: (prefix: string) => {
+			const cmds = ["status", "run"];
+			return cmds
+				.filter(c => c.startsWith(prefix))
+				.map(c => ({ value: c, label: c }));
+		},
+		handler: async (args, ctx) => {
+			if (!scheduler) {
+				ctx.ui.notify("Scheduler not initialized", "warning");
+				return;
+			}
+			const parts = args?.trim().split(/\s+/) ?? [];
+			if (parts[0] === "run" && parts[1]) {
+				const result = await scheduler.runJob(parts[1]);
+				ctx.ui.notify(result ? `✓ Job "${parts[1]}" completed` : `❌ Job "${parts[1]}" not found`, result ? "info" : "warning");
+				return;
+			}
+			// Status
+			const stats = scheduler.getStats();
+			const lines = stats.map(j => `${j.enabled ? "🟢" : "⚪"} ${j.name}: ${j.schedule} → ${j.channel} (runs: ${j.runCount}${j.lastRun ? `, last: ${new Date(j.lastRun).toLocaleTimeString()}` : ""})`);
+			ctx.ui.notify(lines.length ? lines.join("\n") : "No jobs configured", "info");
 		},
 	});
 

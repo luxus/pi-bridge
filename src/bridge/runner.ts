@@ -1,5 +1,5 @@
 /**
- * pi-channels — Subprocess runner for the chat bridge.
+ * pi-bridge — Subprocess runner for the chat bridge.
  *
  * Spawns `pi -p --no-session [@files...] <prompt>` to process a single prompt.
  * Supports file attachments (images, documents) via the @file syntax.
@@ -19,10 +19,12 @@ export interface RunOptions {
 	attachments?: IncomingAttachment[];
 	/** Explicit extension paths to load (with --no-extensions + -e for each). */
 	extensions?: string[];
+	/** Streaming callback — called with each stdout chunk as it arrives. */
+	onData?: (chunk: string) => void;
 }
 
 export function runPrompt(options: RunOptions): Promise<RunResult> {
-	const { prompt, cwd, timeoutMs, model, signal, attachments, extensions } = options;
+	const { prompt, cwd, timeoutMs, model, signal, attachments, extensions, onData } = options;
 
 	return new Promise((resolve) => {
 		const startTime = Date.now();
@@ -64,8 +66,10 @@ export function runPrompt(options: RunOptions): Promise<RunResult> {
 
 		let stdout = "";
 		let stderr = "";
-		child.stdout?.on("data", (chunk: Buffer) => { 
-			stdout += chunk.toString(); 
+		child.stdout?.on("data", (chunk: Buffer) => {
+			const text = chunk.toString();
+			stdout += text;
+			if (onData) onData(text);
 		});
 		child.stderr?.on("data", (chunk: Buffer) => { 
 			stderr += chunk.toString(); 

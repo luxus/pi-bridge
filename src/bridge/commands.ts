@@ -1,5 +1,5 @@
 /**
- * pi-channels — Bot command handler.
+ * pi-bridge — Bot command handler.
  *
  * Detects messages starting with / and handles them without routing
  * to the agent. Provides built-in commands and a registry for custom ones.

@@ -1,5 +1,5 @@
 /**
- * pi-channels — Persistent RPC session runner.
+ * pi-bridge — Persistent RPC session runner.
  *
  * Maintains a long-lived `pi --mode rpc` subprocess per sender,
  * enabling persistent conversation context across messages.

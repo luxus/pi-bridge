@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-const CHANNEL = "channels";
+const CHANNEL = "bridge";
 
 export function createLogger(pi: ExtensionAPI) {
 	return (event: string, data: unknown, level = "INFO") =>

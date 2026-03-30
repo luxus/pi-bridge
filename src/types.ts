@@ -39,14 +39,14 @@ export interface IncomingAttachment {
 	type: "image" | "document" | "audio";
 	/** Local file path (temporary, downloaded by the adapter) */
 	path?: string;
-	/** Remote URL (if media is hosted externally, e.g. SendBlue media_url) */
-	url?: string;
 	/** Original filename (if available) */
 	filename?: string;
 	/** MIME type */
 	mimeType?: string;
 	/** File size in bytes */
 	size?: number;
+	/** Remote URL for the attachment (if applicable) */
+	url?: string;
 }
 
 // ── Transcription config ────────────────────────────────────────
@@ -113,17 +113,27 @@ export interface ChannelAdapter {
 	 * Optional — only supported by adapters with a command menu API.
 	 */
 	syncBotCommands?(commands: Array<{ command: string; description: string }>): Promise<void>;
+	/**
+	 * Create a streaming message instance for progressive updates.
+	 * Optional — only supported by adapters with edit-message capability (e.g. Telegram).
+	 * Returns an object with update/flush/finalize methods.
+	 */
+	createStream?(recipient: string, config?: { throttleMs?: number; minChars?: number }): StreamHandle;
+}
+
+export interface StreamHandle {
+	update(text: string): void;
+	flush(): Promise<void>;
+	finalize(): Promise<void>;
+	abort(deleteMessage?: boolean): Promise<void>;
+	getContent(): string;
+	isActive(): boolean;
 }
 
 // ── Config (lives under "pi-bridge" key in pi settings.json) ──
 
 export interface AdapterConfig {
 	type: string;
-	/** For credentials that reference env vars: "env:VAR_NAME" */
-	apiKeyId?: string;
-	apiSecret?: string;
-	/** Enable streaming text updates for this adapter */
-	streaming?: boolean;
 	[key: string]: unknown;
 }
 
@@ -168,6 +178,12 @@ export interface BridgeConfig {
 	typingIndicators?: boolean;
 	/** Handle bot commands like /start, /help, /abort (default: true). */
 	commands?: boolean;
+	/** Enable streaming (progressive message updates) for adapters that support it (default: false). */
+	streaming?: boolean;
+	/** Throttle streaming updates to every N ms (default: 500). */
+	streamingThrottleMs?: number;
+	/** Minimum chars before first streaming send (default: 30). */
+	streamingMinChars?: number;
 	/**
 	 * Extension paths to load in bridge subprocesses.
 	 * Subprocess runs with --no-extensions by default (avoids loading
@@ -177,12 +193,6 @@ export interface BridgeConfig {
 	 * Example: ["/Users/you/Dev/pi/extensions/pi-vault/src/index.ts"]
 	 */
 	extensions?: string[];
-	/** Enable streaming text updates for bridge responses (default: true). */
-	streaming?: boolean;
-	/** Throttle streaming updates to every N ms (default: 500). */
-	streamingThrottleMs?: number;
-	/** Minimum characters before first streaming update (default: 30). */
-	streamingMinChars?: number;
 }
 
 export interface ChannelConfig {
@@ -196,6 +206,32 @@ export interface ChannelConfig {
 	routes?: Record<string, { adapter: string; recipient: string }>;
 	/** Chat bridge configuration. */
 	bridge?: BridgeConfig;
+	/** Scheduler configuration. */
+	scheduler?: SchedulerConfig;
+}
+
+// ── Scheduler types ─────────────────────────────────────────────
+
+export interface SchedulerJobConfig {
+	/** Cron expression (5-field: minute hour day-of-month month day-of-week) */
+	schedule: string;
+	/** Job type: "message" sends static text, "prompt" runs an LLM prompt */
+	type: "message" | "prompt";
+	/** The text to send (message type) or prompt to run (prompt type) */
+	content: string;
+	/** Target adapter name or route alias */
+	channel: string;
+	/** Target recipient (if not using a route alias) */
+	recipient?: string;
+	/** Whether this job is enabled (default: true) */
+	enabled?: boolean;
+	/** Timezone for the schedule (default: system timezone) */
+	timezone?: string;
+}
+
+export interface SchedulerConfig {
+	enabled?: boolean;
+	jobs: Record<string, SchedulerJobConfig>;
 }
 
 // ── Bridge types ────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 /**
- * pi-channels — Built-in Telegram adapter (bidirectional).
+ * pi-bridge — Built-in Telegram adapter (bidirectional).
  *
  * Outgoing: Telegram Bot API sendMessage.
  * Incoming: Long-polling via getUpdates.
@@ -14,7 +14,7 @@
  *   - File size validation (1MB for docs/photos, 10MB for voice/audio)
  *   - MIME type filtering (text-like files only for documents)
  *
- * Config (in settings.json under pi-channels.adapters.telegram):
+ * Config (in settings.json under pi-bridge.adapters.telegram):
  * {
  *   "type": "telegram",
  *   "botToken": "your-telegram-bot-token",
@@ -36,9 +36,12 @@ import type {
 	IncomingMessage,
 	IncomingAttachment,
 	TranscriptionConfig,
+	StreamHandle,
 } from "../types.ts";
 import type { AdapterFactoryContext } from "../registry.ts";
 import { createTranscriptionProvider, type TranscriptionProvider } from "./transcription.ts";
+import { markdownToTelegramHtml } from "../formatting/telegram-html.ts";
+import { createTelegramStream, type StreamInstance, type StreamConfig } from "../streaming/draft-stream.ts";
 
 const MAX_LENGTH = 4096;
 const MAX_FILE_SIZE = 1_048_576; // 1MB
@@ -136,7 +139,8 @@ function isDocumentFile(mimeType: string | undefined, filename: string | undefin
 
 export async function createTelegramAdapter(config: AdapterConfig, context: AdapterFactoryContext): Promise<ChannelAdapter> {
 	const botToken = config.botToken as string;
-	const parseMode = config.parseMode as string | undefined;
+	const parseMode = (config.parseMode as string | undefined) || "HTML";
+	const autoConvertMarkdown = parseMode === "HTML";
 	const pollingEnabled = config.polling === true;
 	const pollingTimeout = (config.pollingTimeout as number) ?? 30;
 	const allowedChatIds = config.allowedChatIds as string[] | undefined;
@@ -154,7 +158,7 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 			transcriber = await createTranscriptionProvider(transcriptionConfig, context.modelRegistry);
 		} catch (err: any) {
 			transcriberError = err.message ?? "Unknown transcription config error";
-			console.error(`[pi-channels] Transcription config error: ${transcriberError}`);
+			console.error(`[pi-bridge] Transcription config error: ${transcriberError}`);
 		}
 	}
 
@@ -169,7 +173,8 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 	// ── Telegram API helpers ────────────────────────────────
 
 	async function sendTelegram(chatId: string, text: string): Promise<void> {
-		const body: Record<string, unknown> = { chat_id: chatId, text };
+		const formattedText = autoConvertMarkdown ? markdownToTelegramHtml(text) : text;
+		const body: Record<string, unknown> = { chat_id: chatId, text: formattedText };
 		if (parseMode) body.parse_mode = parseMode;
 
 		const res = await fetch(`${apiBase}/sendMessage`, {
@@ -190,6 +195,69 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ chat_id: chatId, action }),
+			});
+		} catch {
+			// Best-effort
+		}
+	}
+
+	async function sendMessageRaw(
+		chatId: string | number,
+		text: string,
+		extra?: Record<string, unknown>,
+	): Promise<{ message_id: number }> {
+		const body: Record<string, unknown> = {
+			chat_id: chatId,
+			text: autoConvertMarkdown ? markdownToTelegramHtml(text) : text,
+			...(parseMode && { parse_mode: parseMode }),
+			...extra,
+		};
+		const res = await fetch(`${apiBase}/sendMessage`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+		if (!res.ok) {
+			const err = await res.text().catch(() => "unknown error");
+			throw new Error(`Telegram API error ${res.status}: ${err}`);
+		}
+		const data = await res.json() as { ok: boolean; result: { message_id: number } };
+		return { message_id: data.result.message_id };
+	}
+
+	async function editMessageText(
+		chatId: string | number,
+		messageId: number,
+		text: string,
+		extra?: Record<string, unknown>,
+	): Promise<void> {
+		const body: Record<string, unknown> = {
+			chat_id: chatId,
+			message_id: messageId,
+			text: autoConvertMarkdown ? markdownToTelegramHtml(text) : text,
+			...(parseMode && { parse_mode: parseMode }),
+			...extra,
+		};
+		const res = await fetch(`${apiBase}/editMessageText`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+		if (!res.ok) {
+			// Silently ignore "message is not modified" errors
+			const err = await res.text().catch(() => "");
+			if (!err.includes("message is not modified")) {
+				throw new Error(`Telegram editMessageText error ${res.status}: ${err}`);
+			}
+		}
+	}
+
+	async function deleteMessage(chatId: string | number, messageId: number): Promise<void> {
+		try {
+			await fetch(`${apiBase}/deleteMessage`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
 			});
 		} catch {
 			// Best-effort
@@ -229,7 +297,7 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 
 			// Write to temp file
 			const ext = path.extname(info.result.file_path) || path.extname(suggestedName || "") || "";
-			const tmpDir = path.join(os.tmpdir(), "pi-channels");
+			const tmpDir = path.join(os.tmpdir(), "pi-bridge");
 			fs.mkdirSync(tmpDir, { recursive: true });
 			const localPath = path.join(tmpDir, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
 			fs.writeFileSync(localPath, buffer);
@@ -673,6 +741,24 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 			await sendChatAction(recipient, "typing");
 		},
 
+		createStream(recipient: string, streamConfig?: { throttleMs?: number; minChars?: number }): StreamHandle {
+			return createTelegramStream(
+				{
+					sendMessage: (chatId, text, extra) => sendMessageRaw(String(chatId), text, extra),
+					editMessageText: (chatId, msgId, text, extra) => editMessageText(String(chatId), msgId, text, extra),
+					deleteMessage: (chatId, msgId) => deleteMessage(String(chatId), msgId),
+				},
+				recipient,
+				{
+					streaming: true,
+					throttleMs: streamConfig?.throttleMs ?? 500,
+					minInitialChars: streamConfig?.minChars ?? 30,
+					maxLength: MAX_LENGTH,
+					parseMode: parseMode || undefined,
+				},
+			);
+		},
+
 		async send(message: ChannelMessage): Promise<void> {
 			if (!message.text) {
 				throw new Error("Telegram adapter requires text");
@@ -722,10 +808,10 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 				});
 				if (!res.ok) {
 					const err = await res.text().catch(() => "unknown error");
-					console.error(`[pi-channels] Failed to sync bot commands: ${res.status} ${err}`);
+					console.error(`[pi-bridge] Failed to sync bot commands: ${res.status} ${err}`);
 				}
 			} catch (err: any) {
-				console.error(`[pi-channels] Failed to sync bot commands: ${err.message}`);
+				console.error(`[pi-bridge] Failed to sync bot commands: ${err.message}`);
 			}
 		},
 	};

@@ -24,7 +24,7 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 		name: "notify",
 		label: "Bridge",
 		description:
-			"Send notifications via configured adapters (Telegram, SendBlue/iMessage, webhooks, custom). " +
+			"Send notifications via configured adapters (Telegram, webhooks, custom). " +
 			"Actions: send (deliver a message), list (show adapters + routes), test (send a ping).",
 		parameters: Type.Object({
 			action: StringEnum(
@@ -35,7 +35,7 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 				Type.String({ description: "Adapter name or route alias (required for send, test)" }),
 			),
 			recipient: Type.Optional(
-				Type.String({ description: "Recipient — chat ID, phone number, webhook URL, etc. (required for send unless using a route)" }),
+				Type.String({ description: "Recipient — chat ID, webhook URL, etc. (required for send unless using a route)" }),
 			),
 			text: Type.Optional(
 				Type.String({ description: "Message text (required for send unless using json payload)" }),
@@ -70,15 +70,15 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 			switch (params.action) {
 				case "list": {
 					const items = registry.list();
-					if (items.length === 0) {
-						result = 'No adapters configured. Add "pi-bridge" to your settings.json.';
-					} else {
-						const lines = items.map(i =>
-							i.type === "route"
-								? `- **${i.name}** (route → ${i.target})`
-								: `- **${i.name}** (${i.direction ?? "adapter"})`
-						);
-						result = `**Bridge (${items.length}):**\n${lines.join("\n")}`;
+				if (items.length === 0) {
+					result = 'No adapters configured. Add "pi-bridge" to your settings.json.';
+				} else {
+					const lines = items.map(i =>
+						i.type === "route"
+							? `- **${i.name}** (route → ${i.target})`
+							: `- **${i.name}** (${i.direction ?? "adapter"})`
+					);
+					result = `**Bridge (${items.length}):**\n${lines.join("\n")}`;
 					}
 					break;
 				}
@@ -144,12 +144,12 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 						result = "Missing required field: adapter.";
 						break;
 					}
-					const r = await registry.send({
-						adapter: params.adapter,
-						recipient: params.recipient ?? "",
-						text: `🏓 pi-bridge test — ${new Date().toISOString()}`,
-						source: "bridge:test",
-					});
+				const r = await registry.send({
+					adapter: params.adapter,
+					recipient: params.recipient ?? "",
+					text: `🏓 pi-bridge test — ${new Date().toISOString()}`,
+					source: "bridge:test",
+				});
 					result = r.ok
 						? `✓ Test sent via "${params.adapter}"${params.recipient ? ` to ${params.recipient}` : ""}`
 						: `Failed: ${r.error}`;

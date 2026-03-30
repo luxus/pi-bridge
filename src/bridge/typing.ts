@@ -1,5 +1,5 @@
 /**
- * pi-channels — Typing indicator manager.
+ * pi-bridge — Typing indicator manager.
  *
  * Sends periodic typing chat actions via the adapter's sendTyping method.
  * Telegram typing indicators expire after ~5s, so we refresh every 4s.

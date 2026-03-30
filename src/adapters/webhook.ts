@@ -1,5 +1,5 @@
 /**
- * pi-channels — Built-in webhook adapter.
+ * pi-bridge — Built-in webhook adapter.
  *
  * Sends HTTP requests where recipient is the webhook URL.
  * Supports two payload modes:

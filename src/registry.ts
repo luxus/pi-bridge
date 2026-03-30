@@ -2,11 +2,13 @@
  * pi-bridge — Adapter registry + route resolution.
  */
 
-import type { EventBus, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { ChannelAdapter, ChannelMessage, AdapterConfig, ChannelConfig, AdapterDirection, OnIncomingMessage, IncomingMessage } from "./types.ts";
 import { createTelegramAdapter } from "./adapters/telegram.ts";
 import { createWebhookAdapter } from "./adapters/webhook.ts";
+import { createSlackAdapter } from "./adapters/slack.ts";
 import { createSendBlueAdapter } from "./adapters/sendblue.ts";
+import { createDiscordAdapter } from "./adapters/discord.ts";
 
 // ── Built-in adapter factories ──────────────────────────────────
 
@@ -16,7 +18,7 @@ export interface AdapterFactoryContext {
 	cwd?: string;
 	log?: AdapterLogger;
 	modelRegistry?: ModelRegistry;
-	events?: EventBus;
+	events?: { emit: (event: string, data: unknown) => void };
 }
 
 type AdapterFactory = (config: AdapterConfig, context: AdapterFactoryContext) => Promise<ChannelAdapter>;
@@ -24,7 +26,9 @@ type AdapterFactory = (config: AdapterConfig, context: AdapterFactoryContext) =>
 const builtinFactories: Record<string, AdapterFactory> = {
 	telegram: createTelegramAdapter,
 	webhook: createWebhookAdapter,
+	slack: createSlackAdapter,
 	sendblue: createSendBlueAdapter,
+	discord: createDiscordAdapter,
 };
 
 // ── Registry ────────────────────────────────────────────────────
@@ -36,8 +40,7 @@ export class ChannelRegistry {
 	private onIncoming: OnIncomingMessage = () => {};
 	private log?: AdapterLogger;
 	private modelRegistry?: ModelRegistry;
-	private events?: EventBus;
-	private cwd?: string;
+	private events?: { emit: (event: string, data: unknown) => void };
 
 	/**
 	 * Set the callback for incoming messages (called by the extension entry).
@@ -60,10 +63,7 @@ export class ChannelRegistry {
 		this.modelRegistry = modelRegistry;
 	}
 
-	/**
-	 * Set the event bus for inter-extension communication.
-	 */
-	setEvents(events: EventBus): void {
+	setEvents(events: { emit: (event: string, data: unknown) => void }): void {
 		this.events = events;
 	}
 
@@ -73,7 +73,6 @@ export class ChannelRegistry {
 	 */
 	async loadConfig(config: ChannelConfig, cwd?: string): Promise<void> {
 		this.errors = [];
-		this.cwd = cwd;
 
 		// Stop existing adapters
 		for (const adapter of this.adapters.values()) {

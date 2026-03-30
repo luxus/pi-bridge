@@ -6,11 +6,8 @@
  * (.pi/settings.json) configs automatically.
  *
  * Environment variable overrides (highest priority, override settings.json):
- *   - TELEGRAM_BOT_TOKEN    → adapters.telegram.botToken
- *   - WEBHOOK_SECRET        → adapters.webhook.secret
- *   - SENDBLUE_API_KEY_ID   → adapters.sendblue.apiKeyId
- *   - SENDBLUE_API_SECRET   → adapters.sendblue.apiSecret
- *   - SENDBLUE_NUMBER       → adapters.sendblue.sendblueNumber
+ *   - TELEGRAM_BOT_TOKEN → adapters.telegram.botToken
+ *   - WEBHOOK_SECRET     → adapters.webhook.secret
  *
  * Example settings.json:
  * {
@@ -18,22 +15,18 @@
  *     "adapters": {
  *       "telegram": {
  *         "type": "telegram",
- *         "botToken": "your-telegram-bot-token",
- *         "streaming": true
+ *         "botToken": "your-telegram-bot-token"
  *       },
- *       "sendblue": {
- *         "type": "sendblue",
- *         "apiKeyId": "env:SENDBLUE_API_KEY_ID",
- *         "apiSecret": "env:SENDBLUE_API_SECRET",
- *         "sendblueNumber": "+1234567890"
+ *       "slack": {
+ *         "type": "slack"
  *       }
+ *     },
+ *     "slack": {
+ *       "appToken": "xapp-...",
+ *       "botToken": "xoxb-..."
  *     },
  *     "routes": {
  *       "ops": { "adapter": "telegram", "recipient": "-100987654321" }
- *     },
- *     "bridge": {
- *       "enabled": false,
- *       "streaming": true
  *     }
  *   }
  * }
@@ -53,7 +46,7 @@ export function loadConfig(cwd: string): ChannelConfig {
 	const globalCh = global?.[SETTINGS_KEY] ?? {};
 	const projectCh = project?.[SETTINGS_KEY] ?? {};
 
-	// Project overrides global (shallow merge of adapters + routes + bridge)
+	// Project overrides global (shallow merge of adapters + routes + bridge + scheduler)
 	const merged: ChannelConfig = {
 		adapters: {
 			...(globalCh.adapters ?? {}),
@@ -67,6 +60,14 @@ export function loadConfig(cwd: string): ChannelConfig {
 			...(globalCh.bridge ?? {}),
 			...(projectCh.bridge ?? {}),
 		} as ChannelConfig["bridge"],
+		scheduler: {
+			...(globalCh.scheduler ?? {}),
+			...(projectCh.scheduler ?? {}),
+			jobs: {
+				...(globalCh.scheduler?.jobs ?? {}),
+				...(projectCh.scheduler?.jobs ?? {}),
+			},
+		} as ChannelConfig["scheduler"],
 	};
 
 	// Env vars override settings.json values
@@ -80,11 +81,8 @@ export function loadConfig(cwd: string): ChannelConfig {
  *
  * Env vars take highest priority, overriding any value from settings.json.
  *
- *   TELEGRAM_BOT_TOKEN    → adapters.telegram.botToken
- *   WEBHOOK_SECRET        → adapters.webhook.secret
- *   SENDBLUE_API_KEY_ID   → adapters.sendblue.apiKeyId
- *   SENDBLUE_API_SECRET   → adapters.sendblue.apiSecret
- *   SENDBLUE_NUMBER       → adapters.sendblue.sendblueNumber
+ *   TELEGRAM_BOT_TOKEN → adapters.telegram.botToken
+ *   WEBHOOK_SECRET     → adapters.webhook.secret
  *
  * Adapter entries are auto-created with a default type if they don't already exist
  * in settings, so you can run purely from env vars without any settings.json config.
@@ -106,16 +104,15 @@ function applyEnvOverrides(config: ChannelConfig): void {
 		config.adapters.webhook.secret = webhookSecret;
 	}
 
-	// SendBlue overrides
-	const sendblueKeyId = process.env.SENDBLUE_API_KEY_ID;
-	const sendblueSecret = process.env.SENDBLUE_API_SECRET;
+	const sendblueApiKeyId = process.env.SENDBLUE_API_KEY_ID;
+	const sendblueApiSecret = process.env.SENDBLUE_API_SECRET;
 	const sendblueNumber = process.env.SENDBLUE_NUMBER;
-	if (sendblueKeyId || sendblueSecret || sendblueNumber) {
+	if (sendblueApiKeyId || sendblueApiSecret || sendblueNumber) {
 		if (!config.adapters.sendblue) {
 			config.adapters.sendblue = { type: "sendblue" };
 		}
-		if (sendblueKeyId) config.adapters.sendblue.apiKeyId = sendblueKeyId;
-		if (sendblueSecret) config.adapters.sendblue.apiSecret = sendblueSecret;
+		if (sendblueApiKeyId) config.adapters.sendblue.apiKeyId = sendblueApiKeyId;
+		if (sendblueApiSecret) config.adapters.sendblue.apiSecret = sendblueApiSecret;
 		if (sendblueNumber) config.adapters.sendblue.sendblueNumber = sendblueNumber;
 	}
 }

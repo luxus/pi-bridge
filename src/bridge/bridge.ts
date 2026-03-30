@@ -1,7 +1,7 @@
 /**
- * pi-channels — Chat bridge.
+ * pi-bridge — Chat bridge.
  *
- * Listens for incoming messages (channel:receive), serializes per sender,
+ * Listens for incoming messages (bridge:receive), serializes per sender,
  * runs prompts via isolated subprocesses, and sends responses back via
  * the same adapter. Each sender gets their own FIFO queue. Multiple
  * senders run concurrently up to maxConcurrent.
@@ -13,6 +13,7 @@ import type {
 	QueuedPrompt,
 	SenderSession,
 	BridgeConfig,
+	StreamHandle,
 } from "../types.ts";
 import type { ChannelRegistry } from "../registry.ts";
 import type { EventBus } from "@mariozechner/pi-coding-agent";
@@ -33,10 +34,10 @@ const BRIDGE_DEFAULTS: Required<BridgeConfig> = {
 	model: null,
 	typingIndicators: true,
 	commands: true,
-	extensions: [],
-	streaming: true,
+	streaming: false,
 	streamingThrottleMs: 500,
 	streamingMinChars: 30,
+	extensions: [],
 };
 
 type LogFn = (event: string, data: unknown, level?: string) => void;
@@ -203,8 +204,13 @@ export class ChatBridge {
 		this.activeCount++;
 		const prompt = session.queue.shift()!;
 
-		// Typing indicator
 		const adapter = this.registry.getAdapter(prompt.adapter);
+		if (!adapter) {
+			this.sendReply(prompt.adapter, prompt.sender, "❌ Adapter not found.");
+			session.processing = false;
+			this.activeCount--;
+			return;
+		}
 		const typing = this.config.typingIndicators
 			? startTyping(adapter, prompt.sender)
 			: { stop() {} };
@@ -224,20 +230,36 @@ export class ChatBridge {
 		const promptWithContext = contextText + "\n" + originalText;
 		prompt.text = promptWithContext;
 
+		const useStreaming = this.config.streaming && typeof adapter.createStream === "function";
+		let stream: StreamHandle | null = null;
+		let streamedText = "";
+
+		if (useStreaming) {
+			stream = adapter.createStream!(prompt.sender, {
+				throttleMs: this.config.streamingThrottleMs,
+				minChars: this.config.streamingMinChars,
+			});
+		}
+
+		const onStreamingChunk = (delta: string) => {
+			if (!stream || !stream.isActive()) return;
+			streamedText += delta;
+			stream.update(streamedText);
+		};
+
 		this.events.emit("bridge:start", {
 			id: prompt.id, adapter: prompt.adapter, sender: prompt.sender,
 			text: promptWithContext.slice(0, 100),
 			persistent: usePersistent,
+			streaming: useStreaming,
 		});
 
 		try {
-			let result;
+			let result: import("../types.ts").RunResult;
 
 			if (usePersistent && this.rpcManager) {
-				// Persistent mode: use RPC session
-				result = await this.runWithRpc(senderKey, prompt, ac.signal);
+				result = await this.runWithRpc(senderKey, prompt, ac.signal, stream ? onStreamingChunk : undefined);
 			} else {
-				// Stateless mode: spawn subprocess
 				result = await runPrompt({
 					prompt: promptWithContext,
 					cwd: this.cwd,
@@ -246,18 +268,30 @@ export class ChatBridge {
 					signal: ac.signal,
 					attachments: prompt.attachments,
 					extensions: this.config.extensions,
+					onData: stream ? onStreamingChunk : undefined,
 				});
 			}
 
 			typing.stop();
 
 			if (result.ok) {
-				// Save assistant response to history
-				saveAssistantResponse(prompt.sender, result.response);
-				this.sendReply(prompt.adapter, prompt.sender, result.response);
+				saveAssistantResponse(prompt.sender, result.response, prompt.adapter);
+				if (stream && stream.isActive()) {
+				streamedText = result.response;
+				stream.update(streamedText);
+					await stream.finalize();
+				} else {
+					this.sendReply(prompt.adapter, prompt.sender, result.response);
+				}
 			} else if (result.error === "Aborted by user") {
+				if (stream && stream.isActive()) {
+					await stream.abort(true);
+				}
 				this.sendReply(prompt.adapter, prompt.sender, "⏹ Aborted.");
 			} else {
+				if (stream && stream.isActive()) {
+					await stream.abort(true);
+				}
 				const userError = sanitizeError(result.error);
 				this.sendReply(
 					prompt.adapter, prompt.sender,
@@ -268,15 +302,19 @@ export class ChatBridge {
 			this.events.emit("bridge:complete", {
 				id: prompt.id, adapter: prompt.adapter, sender: prompt.sender,
 				ok: result.ok, durationMs: result.durationMs,
-				persistent: usePersistent,
+				persistent: usePersistent, streaming: useStreaming,
 			});
 			this.log("bridge-complete", {
 				id: prompt.id, adapter: prompt.adapter, ok: result.ok,
 				durationMs: result.durationMs, persistent: usePersistent,
+				streaming: useStreaming,
 			}, result.ok ? "INFO" : "WARN");
 
 		} catch (err: any) {
 			typing.stop();
+			if (stream && stream.isActive()) {
+				await stream.abort(true);
+			}
 			this.log("bridge-error", { adapter: prompt.adapter, sender: prompt.sender, error: err.message }, "ERROR");
 			this.sendReply(prompt.adapter, prompt.sender, `❌ Unexpected error: ${err.message}`);
 		} finally {
@@ -294,12 +332,14 @@ export class ChatBridge {
 		senderKey: string,
 		prompt: QueuedPrompt,
 		signal?: AbortSignal,
+		onStreaming?: (delta: string) => void,
 	): Promise<import("../types.ts").RunResult> {
 		try {
 			const rpcSession = await this.rpcManager!.getSession(senderKey);
 			return await rpcSession.runPrompt(prompt.text, {
 				signal,
 				attachments: prompt.attachments,
+				onStreaming,
 			});
 		} catch (err: any) {
 			return {
