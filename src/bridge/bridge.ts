@@ -333,6 +333,7 @@ export class ChatBridge {
 		if (result.ok) {
 			saveAssistantResponse(prompt.sender, result.response, prompt.adapter);
 			const voiceRequested = prompt.metadata?.voiceRequested === true;
+			console.log(`[DEBUG] voiceRequested: ${voiceRequested}, metadata:`, JSON.stringify(prompt.metadata));
 			if (stream && stream.isActive()) {
 			streamedText = result.response;
 			stream.update(streamedText);
