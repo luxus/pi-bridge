@@ -178,6 +178,27 @@ export class ChatBridge {
 			}
 		}
 
+		// Check for subagent delegation (e.g., "ask health-agent about...")
+		if (text && !text.startsWith("/")) {
+			const subagentRequest = this.detectSubagentRequest(text);
+			if (subagentRequest && isTrusted) {
+				// Inform user that subagent is working
+				this.sendReply(
+					message.adapter, 
+					message.sender, 
+					`🤖 Ich schicke den ${subagentRequest.agent} für dich...`,
+					voiceRequested
+				);
+				
+				// Store subagent info in metadata for the main agent to handle
+				message.metadata = {
+					...message.metadata,
+					subagent: subagentRequest,
+				};
+				// Continue to normal processing - the AI will see the subagent info
+			}
+		}
+
 		// Get or create session
 		let session = this.sessions.get(senderKey);
 		if (!session) {
@@ -535,6 +556,31 @@ export class ChatBridge {
 			/kannst du.*sprach/i,
 		];
 		return voicePatterns.some(pattern => pattern.test(text));
+	}
+
+	// ── Subagent detection ────────────────────────────────────
+
+	private detectSubagentRequest(text: string): { agent: string; task: string } | null {
+		// Patterns like: "ask health-agent about...", "let health-agent check...", "health-agent: ..."
+		const patterns = [
+			/(?:frag|ask|sende|let)\s+(health-agent|task-master|email-agent|calendar-agent|diary-agent)(?:\s+(?:to|about|zu|nach|über|\:))?\s*(.+)/i,
+			/(health-agent|task-master|email-agent|calendar-agent|diary-agent)\s*\:\s*(.+)/i,
+		];
+		
+		for (const pattern of patterns) {
+			const match = text.match(pattern);
+			if (match) {
+				return { agent: match[1], task: match[2] || text };
+			}
+		}
+		
+		// Health-related keywords trigger health-agent
+		const healthKeywords = /(?:kopfschmerzen|schlaf|schlafqualität|stimmung|gesundheit|health|müdigkeit|energie|stress|analyse meiner)/i;
+		if (healthKeywords.test(text) && !text.includes("?")) {
+			return { agent: "health-agent", task: text };
+		}
+		
+		return null;
 	}
 
 	// ── Reply ─────────────────────────────────────────────────
