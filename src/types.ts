@@ -258,20 +258,30 @@ export interface ChannelConfig {
 // ── Scheduler types ─────────────────────────────────────────────
 
 export interface SchedulerJobConfig {
-	/** Cron expression (5-field: minute hour day-of-month month day-of-week) */
-	schedule: string;
+	/** Cron expression (5-field: minute hour day-of-month month day-of-week) - legacy field */
+	schedule?: string;
+	/** Cron expression (5-field) - preferred field */
+	cron?: string;
 	/** Job type: "message" sends static text, "prompt" runs an LLM prompt */
 	type: "message" | "prompt";
-	/** The text to send (message type) or prompt to run (prompt type) */
-	content: string;
-	/** Target adapter name or route alias */
-	channel: string;
+	/** The text to send (message type) or prompt to run (prompt type) - legacy field */
+	content?: string;
+	/** Message content for type "message" */
+	message?: string;
+	/** Prompt content for type "prompt" */
+	prompt?: string;
+	/** Target adapter name or route alias - legacy field */
+	channel?: string;
+	/** Target adapter name */
+	adapter?: string;
 	/** Target recipient (if not using a route alias) */
 	recipient?: string;
 	/** Whether this job is enabled (default: true) */
 	enabled?: boolean;
 	/** Timezone for the schedule (default: system timezone) */
 	timezone?: string;
+	/** Send as voice message (TTS) */
+	voice?: boolean;
 }
 
 export interface SchedulerConfig {

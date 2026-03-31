@@ -63,6 +63,7 @@ export function matchesCronField(field: string, value: number, min: number, max:
  * Fields: minute(0-59) hour(0-23) day(1-31) month(1-12) dow(0-6, 0=Sunday)
  */
 export function matchesCron(expression: string, date: Date): boolean {
+	if (!expression || typeof expression !== 'string') return false;
 	const parts = expression.trim().split(/\s+/);
 	if (parts.length !== 5) return false;
 
@@ -157,7 +158,8 @@ export class Scheduler {
 
 		for (const [name, job] of Object.entries(this.config.jobs ?? {})) {
 			if (job.enabled === false) continue;
-			if (!matchesCron(job.schedule, now)) continue;
+			const schedule = job.cron || job.schedule;
+			if (!schedule || !matchesCron(schedule, now)) continue;
 
 			const state = this.jobStates.get(name);
 			if (state?.lastRun && now.getTime() - state.lastRun < 60000) continue;
@@ -191,10 +193,12 @@ export class Scheduler {
 	}
 
 	private async executeMessageJob(name: string, job: SchedulerJobConfig): Promise<void> {
+		const content = job.message || job.content || "";
+		const adapter = job.adapter || job.channel || "telegram";
 		const result = await this.registry.send({
-			adapter: job.channel,
+			adapter,
 			recipient: job.recipient ?? "",
-			text: job.content,
+			text: content,
 			source: `cron:${name}`,
 		});
 
@@ -204,8 +208,11 @@ export class Scheduler {
 	}
 
 	private async executePromptJob(name: string, job: SchedulerJobConfig): Promise<void> {
+		const prompt = job.prompt || job.content || "";
+		const adapter = job.adapter || job.channel || "telegram";
+		
 		const result: RunResult = await runPrompt({
-			prompt: job.content,
+			prompt,
 			cwd: this.cwd,
 			timeoutMs: 300000,
 		});
@@ -215,11 +222,11 @@ export class Scheduler {
 			: `❌ Error: ${result.error ?? "unknown"}`;
 
 		const sendResult = await this.registry.send({
-			adapter: job.channel,
+			adapter,
 			recipient: job.recipient ?? "",
 			text,
 			source: `cron:${name}`,
-			metadata: { durationMs: result.durationMs, ok: result.ok },
+			metadata: { durationMs: result.durationMs, ok: result.ok, voice: job.voice },
 		});
 
 		if (!sendResult.ok) {
@@ -227,7 +234,7 @@ export class Scheduler {
 		}
 
 		this.events.emit("cron:job_complete", {
-			job: { name, channel: job.channel, prompt: job.content },
+			job: { name, channel: adapter, prompt },
 			response: result.response,
 			ok: result.ok,
 			error: result.error,
@@ -247,14 +254,16 @@ export class Scheduler {
 		const now = Date.now();
 		return Object.entries(this.config.jobs ?? {}).map(([name, job]) => {
 			const state = this.jobStates.get(name);
+			const schedule = job.cron || job.schedule || "";
+			const channel = job.adapter || job.channel || "";
 			return {
 				name,
-				schedule: job.schedule,
-				channel: job.channel,
+				schedule,
+				channel,
 				enabled: job.enabled !== false,
 				runCount: state?.runCount ?? 0,
 				lastRun: state?.lastRun ?? null,
-				nextRun: job.enabled !== false ? getNextRunTime(job.schedule, new Date(now)) : null,
+				nextRun: job.enabled !== false ? getNextRunTime(schedule, new Date(now)) : null,
 			};
 		});
 	}
