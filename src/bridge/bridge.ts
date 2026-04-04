@@ -40,6 +40,10 @@ const BRIDGE_DEFAULTS: Required<BridgeConfig> = {
 	streamingThrottleMs: 500,
 	streamingMinChars: 30,
 	extensions: [],
+	voiceMode: {
+		enabled: false,
+		autoSwitch: true,
+	},
 };
 
 type LogFn = (event: string, data: unknown, level?: string) => void;
@@ -155,6 +159,23 @@ export class ChatBridge {
 
 		const senderKey = `${message.adapter}:${message.sender}`;
 
+		// Get or create session early so it's available for all replies
+		let session = this.sessions.get(senderKey);
+		if (!session) {
+			session = this.createSession(message);
+			this.sessions.set(senderKey, session);
+		}
+
+		// Auto-detect response mode based on incoming message attachments
+		const hasAudioAttachments = message.attachments?.some(a => a.type === "audio") ?? false;
+		if (this.config.voiceMode?.enabled && this.config.voiceMode?.autoSwitch !== false) {
+			if (hasAudioAttachments) {
+				session.responseMode = "voice";
+			} else {
+				session.responseMode = "text";
+			}
+		}
+
 		// Add trust metadata
 		const isTrusted = this.toolProxy?.isTrusted(message.sender) ?? false;
 		message.metadata = {
@@ -170,9 +191,9 @@ export class ChatBridge {
 			if (toolResult) {
 				// Tool was handled (either executed or permission denied)
 				if (!toolResult.ok) {
-					this.sendReply(message.adapter, message.sender, `❌ ${toolResult.error || "Tool execution failed"}`);
+					this.sendReply(message.adapter, message.sender, `❌ ${toolResult.error || "Tool execution failed"}`, false, session.responseMode);
 				} else {
-					this.sendReply(message.adapter, message.sender, toolResult.response || "✓ Done");
+					this.sendReply(message.adapter, message.sender, toolResult.response || "✓ Done", false, session.responseMode);
 				}
 				return;
 			}
@@ -187,7 +208,8 @@ export class ChatBridge {
 					message.adapter, 
 					message.sender, 
 					`🤖 Ich schicke den ${subagentRequest.agent} für dich...`,
-					voiceRequested
+					voiceRequested,
+					session.responseMode
 				);
 				
 				// Store subagent info in metadata for the main agent to handle
@@ -199,19 +221,11 @@ export class ChatBridge {
 			}
 		}
 
-		// Get or create session
-		let session = this.sessions.get(senderKey);
-		if (!session) {
-			session = this.createSession(message);
-			this.sessions.set(senderKey, session);
-		} else {
-		}
-
 		// Bot commands (only for text-only messages)
 		if (text && !hasAttachments && this.config.commands && isCommand(text)) {
 			const reply = handleCommand(text, session, this.commandContext());
 			if (reply !== null) {
-				this.sendReply(message.adapter, message.sender, reply);
+				this.sendReply(message.adapter, message.sender, reply, false, session.responseMode);
 				return;
 			}
 			// Unrecognized command — fall through to agent
@@ -224,6 +238,8 @@ export class ChatBridge {
 				message.sender,
 				`⚠️ Queue full (${this.config.maxQueuePerSender} pending). ` +
 				`Wait for current prompts to finish or use /abort.`,
+				false,
+				session.responseMode,
 			);
 			return;
 		}
@@ -275,7 +291,7 @@ export class ChatBridge {
 
 		const adapter = this.registry.getAdapter(prompt.adapter);
 		if (!adapter) {
-			this.sendReply(prompt.adapter, prompt.sender, "❌ Adapter not found.");
+			this.sendReply(prompt.adapter, prompt.sender, "❌ Adapter not found.", false, session.responseMode);
 			session.processing = false;
 			this.activeCount--;
 			return;
@@ -302,7 +318,14 @@ export class ChatBridge {
 		const senderContext = `[Message from ${senderName} (ID: ${senderId}) via ${prompt.adapter}]`;
 		
 		const originalText = prompt.text;
-		const promptWithContext = contextText + "\n" + senderContext + "\n\n" + originalText;
+		
+		// Inject voice-style instruction if in voice mode
+		let voiceInstruction = "";
+		if (session.responseMode === "voice" && this.config.voiceMode?.enabled) {
+			voiceInstruction = "[Voice mode — respond naturally as if speaking a voice message. Use short sentences. No markdown tables, no code blocks, no bullet lists. Write conversationally. No emojis. Keep it under 300 words.]\n\n";
+		}
+		
+		const promptWithContext = voiceInstruction + contextText + "\n" + senderContext + "\n\n" + originalText;
 		prompt.text = promptWithContext;
 
 		const voiceRequested = prompt.metadata?.voiceRequested === true;
@@ -362,13 +385,13 @@ export class ChatBridge {
 			stream.update(streamedText);
 				await stream.finalize();
 			} else {
-				this.sendReply(prompt.adapter, prompt.sender, result.response, voiceRequested);
+				this.sendReply(prompt.adapter, prompt.sender, result.response, voiceRequested, session.responseMode);
 			}
 		} else if (result.error === "Aborted by user") {
 			if (stream && stream.isActive()) {
 				await stream.abort(true);
 			}
-			this.sendReply(prompt.adapter, prompt.sender, "⏹ Aborted.");
+			this.sendReply(prompt.adapter, prompt.sender, "⏹ Aborted.", false, session.responseMode);
 		} else {
 			if (stream && stream.isActive()) {
 				await stream.abort(true);
@@ -377,6 +400,8 @@ export class ChatBridge {
 			this.sendReply(
 				prompt.adapter, prompt.sender,
 				result.response || `❌ ${userError}`,
+				false,
+				session.responseMode,
 			);
 		}
 
@@ -397,7 +422,7 @@ export class ChatBridge {
 				await stream.abort(true);
 			}
 			this.log("bridge-error", { adapter: prompt.adapter, sender: prompt.sender, error: err.message }, "ERROR");
-			this.sendReply(prompt.adapter, prompt.sender, `❌ Unexpected error: ${err.message}`);
+			this.sendReply(prompt.adapter, prompt.sender, `❌ Unexpected error: ${err.message}`, false, session.responseMode);
 		} finally {
 			session.abortController = null;
 			session.processing = false;
@@ -585,8 +610,15 @@ export class ChatBridge {
 
 	// ── Reply ─────────────────────────────────────────────────
 
-	private sendReply(adapter: string, recipient: string, text: string, voiceRequested: boolean = false): void {
-		if (voiceRequested) {
+	private sendReply(
+		adapter: string,
+		recipient: string,
+		text: string,
+		voiceRequested: boolean = false,
+		responseMode?: "text" | "voice",
+	): void {
+		const shouldSendAsVoice = responseMode === "voice" || voiceRequested;
+		if (shouldSendAsVoice) {
 			this.registry.send({ 
 				adapter, 
 				recipient, 

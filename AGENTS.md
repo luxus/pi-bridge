@@ -70,4 +70,71 @@ src/
 - `src/bridge/bridge.ts` — Core bridge logic with per-sender queues
 - `src/bridge/rpc-runner.ts` — Persistent RPC session management
 - `src/adapters/telegram.ts` — Full-featured Telegram adapter with streaming support
+- `src/adapters/tts.ts` — TTS providers: apple, openai, elevenlabs, **xai**
 - `src/scheduler/scheduler.ts` — Cron job scheduler with expression parser
+
+## TTS & Voice Mode
+
+When `voiceMode.enabled: true`, the bridge can send responses as voice messages using TTS.
+
+### How it works
+
+1. **You write clean text** — No special formatting needed
+2. **System optimizes automatically** — Adds speech tags (pauses, emotions) for voice output
+3. **Text stays clean** — Original text unchanged for text output
+4. **Voice gets enhanced** — Automatic optimization when sending as voice
+
+### xAI Speech Tags (complete list)
+
+The system automatically adds these tags based on text analysis:
+
+**Inline Tags** (placed at specific points):
+```
+Pauses:        [pause], [long-pause]
+Laughter:      [laugh], [chuckle], [giggle], [cry]
+Mouth sounds:  [tsk], [tongue-click], [lip-smack]
+Breathing:     [breath], [inhale], [exhale], [sigh]
+Vocal effects: [hum-tune]
+```
+
+**Wrapping Tags** (wrap text sections):
+```
+Volume:        <soft>, <loud>, <build-intensity>, <decrease-intensity>
+Pitch/Speed:   <higher-pitch>, <lower-pitch>, <slow>, <fast>
+Style:         <whisper>, <sing-song>, <singing>, <laugh-speak>, <emphasis>
+```
+
+### Configuration
+
+```json
+{
+  "pi-bridge": {
+    "adapters": {
+      "telegram": {
+        "tts": {
+          "enabled": true,
+          "provider": "xai",
+          "voice": "ara",
+          "language": "auto"
+        }
+      }
+    },
+    "bridge": {
+      "voiceMode": {
+        "enabled": true,
+        "autoSwitch": true
+      }
+    }
+  }
+}
+```
+
+### Voice Best Practices
+
+- **Keep voice messages short** — 30-60 seconds maximum (about 3 sentences)
+- **Rewrite, don't read** — Transform tables/lists into 3-sentence summaries
+- **3-Sentence formula:** Headline → Detail → Call-to-Action
+- **Use natural punctuation** — System adds `[pause]`, `[laugh]` based on `!`, `?`, etc.
+- **Auto-switch**: Voice in → Voice out, Text in → Text out
+
+See full skill documentation: `.agents/skills/pi-bridge-tts/SKILL.md`

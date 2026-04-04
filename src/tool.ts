@@ -25,7 +25,8 @@ export function registerBridgeTool(pi: ExtensionAPI, registry: ChannelRegistry):
 		name: "notify",
 		label: "Bridge",
 		description:
-			"Send notifications via configured adapters (Telegram, webhooks, custom). " +
+			"Send notifications via configured adapters (Telegram, sendblue/iMessage, Slack, Discord, webhooks). " +
+			"Routes: 'ops' → Telegram, 'imessage' → iMessage (sendblue). " +
 			"Actions: send (deliver a message), list (show adapters + routes), test (send a ping).",
 		parameters: Type.Object({
 			action: StringEnum(

@@ -50,6 +50,70 @@ const MAX_FILE_SIZE = 1_048_576; // 1MB
 const MAX_AUDIO_SIZE = 10_485_760; // 10MB — voice/audio files are larger
 const MAX_DOCUMENT_SIZE = 20_971_520; // 20MB — for PDF/Office documents
 
+/**
+ * Optimize plain text for voice output by adding expressive speech tags.
+ * This transforms clean text into expressive speech suitable for TTS.
+ * 
+ * Rules:
+ * - Add natural pauses after sentences and commas
+ * - Insert [laugh] or [chuckle] for positive/casual moments
+ * - Use [pause] for dramatic effect or list separation
+ * - Keep it natural: max 2-3 tags per message
+ * - Respect 15,000 char xAI limit
+ */
+function optimizeForVoice(text: string): string {
+	// Don't over-process if text is already short and simple
+	if (text.length < 50) return text;
+
+	// Add [pause] after sentence endings for natural breathing
+	text = text.replace(/([.!?])\s+([A-Z])/g, "$1 [pause] $2");
+	
+	// Add [laugh] or [chuckle] for positive indicators
+	const positivePatterns = [
+		{ pattern: /\b(lol|haha|😂|😄|😊)\b/gi, tag: "[chuckle]" },
+		{ pattern: /\b(super|toll|großartig|fantastisch|perfekt|awesome|great|perfect)\b/gi, tag: "[laugh]" },
+		{ pattern: /\b(!!!|!\s+!|\?\?\?)\b/g, tag: "[laugh]" },
+	];
+	
+	for (const { pattern, tag } of positivePatterns) {
+		if (pattern.test(text)) {
+			// Add tag after first occurrence, then reset
+			text = text.replace(pattern, (match) => `${match} ${tag}`);
+			break; // Only one emotion tag
+		}
+	}
+	
+	// Use <whisper> for secrets or confidential info (detected by keywords)
+	const secretPatterns = /\b(geheim|secret|vertraulich|confidential|password|passwort|pin)\b/gi;
+	if (secretPatterns.test(text)) {
+		// Find the sentence with the secret
+		text = text.replace(/([^.*!?]*(?:geheim|secret|vertraulich|confidential|password|passwort|pin)[^.*!?]*[.!?])/gi, 
+			(match) => `<whisper>${match.trim()}</whisper> `);
+	}
+	
+	// Add [sigh] for negative or resigned moments
+	const negativePatterns = /\b(schade|ärgerlich|frustrierend|nervig|toll nicht|too bad|unfortunate)\b/gi;
+	if (negativePatterns.test(text)) {
+		text = text.replace(negativePatterns, (match) => `${match} [sigh]`);
+	}
+	
+	// Ensure we don't exceed reasonable tag density
+	const tagCount = (text.match(/\[\w+\]|<\w+>/g) || []).length;
+	if (tagCount > 4) {
+		// Too many tags - remove excess [pause] tags (keep first 2)
+		let pauseCount = 0;
+		text = text.replace(/\[pause\]/g, (match) => {
+			pauseCount++;
+			return pauseCount > 2 ? "" : match;
+		});
+	}
+	
+	// Clean up extra whitespace
+	text = text.replace(/\s+/g, " ").trim();
+	
+	return text;
+}
+
 /** MIME types we treat as text documents (content inlined into the prompt). */
 const TEXT_MIME_TYPES = new Set([
 	"text/plain",
@@ -813,8 +877,9 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 			const voiceRequested = message.metadata?.voice === true;
 
 			if (voiceRequested && ttsProvider) {
-				// Generate voice message using TTS
-				const result = await ttsProvider.synthesize(message.text);
+				// Generate voice message using TTS - optimize text for voice output
+				const voiceText = optimizeForVoice(message.text);
+				const result = await ttsProvider.synthesize(voiceText);
 				if (result.ok && result.audioPath) {
 					try {
 						await sendVoice(message.recipient, result.audioPath, message.source);
@@ -833,7 +898,7 @@ export async function createTelegramAdapter(config: AdapterConfig, context: Adap
 				}
 			}
 
-			// Send as regular text message
+			// Send as regular text message (clean text, no speech tags)
 			const prefix = message.source ? `[${message.source}]\n` : "";
 			const full = prefix + message.text;
 

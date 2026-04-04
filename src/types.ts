@@ -82,8 +82,9 @@ export interface TTSConfig {
 	 * - "apple"      — macOS `say` command (free, offline, no API key)
 	 * - "openai"     — OpenAI TTS API (tts-1, tts-1-hd)
 	 * - "elevenlabs" — ElevenLabs TTS API
+	 * - "xai"        — xAI TTS API (Eve, Ara, Rex, Sal, Leo voices)
 	 */
-	provider: "apple" | "openai" | "elevenlabs";
+	provider: "apple" | "openai" | "elevenlabs" | "xai";
 	/**
 	 * API key for cloud providers. Optional for OpenAI if pi has authentication configured.
 	 * Put the key value directly in settings.json. Not needed for apple provider.
@@ -100,10 +101,17 @@ export interface TTSConfig {
 	 * - OpenAI: "alloy", "echo", "fable", "onyx", "nova", "shimmer" (default: "alloy")
 	 * - ElevenLabs: voice ID (default: "21m00Tcm4TlvDq8ikWAM" - Rachel)
 	 * - Apple: voice name from `say -v ?` (default: system default)
+	 * - xAI: "eve", "ara", "rex", "sal", "leo" (default: "eve")
 	 */
 	voice?: string;
 	/** Speech speed multiplier, 0.25 to 4.0 (default: 1.0) */
 	speed?: number;
+	/**
+	 * Language code for TTS (provider-specific):
+	 * - xAI: BCP-47 code like "en", "es", "fr", or "auto" (default: "en")
+	 * - Others: may be ignored
+	 */
+	language?: string;
 }
 
 export interface IncomingMessage {
@@ -236,6 +244,15 @@ export interface BridgeConfig {
 	 * Example: ["/Users/you/Dev/pi/extensions/pi-vault/src/index.ts"]
 	 */
 	extensions?: string[];
+	/**
+	 * Voice mode configuration for auto-switching between text and voice responses.
+	 */
+	voiceMode?: {
+		/** Enable auto voice mode detection (default: false) */
+		enabled?: boolean;
+		/** Auto-switch: voice in → voice out, text in → text out (default: true) */
+		autoSwitch?: boolean;
+	};
 }
 
 export interface ChannelConfig {
@@ -312,6 +329,8 @@ export interface SenderSession {
 	abortController: AbortController | null;
 	messageCount: number;
 	startedAt: number;
+	/** Current response mode: "text" (default) or "voice" (TTS) */
+	responseMode?: "text" | "voice";
 }
 
 /** Result from a subprocess run. */

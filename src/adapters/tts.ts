@@ -1,10 +1,11 @@
 /**
  * pi-bridge — Pluggable Text-to-Speech (TTS).
  *
- * Supports three providers:
+ * Supports four providers:
  *   - "apple"      — macOS `say` command (free, offline, no API key)
  *   - "openai"     — OpenAI TTS API (tts-1, tts-1-hd)
  *   - "elevenlabs" — ElevenLabs TTS API
+ *   - "xai"        — xAI TTS API (Eve, Ara, Rex, Sal, Leo voices)
  *
  * Usage:
  *   const provider = createTTSProvider(config);
@@ -42,7 +43,7 @@ export interface TTSProvider {
 
 /**
  * Create a TTS provider from config.
- * If modelRegistry is provided, OpenAI/ElevenLabs providers will use pi's built-in
+ * If modelRegistry is provided, OpenAI/ElevenLabs/xAI providers will use pi's built-in
  * authentication instead of requiring explicit API keys in config.
  */
 export async function createTTSProvider(
@@ -56,6 +57,8 @@ export async function createTTSProvider(
 			return await OpenAIProvider.create(config, modelRegistry);
 		case "elevenlabs":
 			return await ElevenLabsProvider.create(config, modelRegistry);
+		case "xai":
+			return await XAIProvider.create(config, modelRegistry);
 		default:
 			throw new Error(`Unknown TTS provider: ${config.provider}`);
 	}
@@ -81,6 +84,19 @@ async function resolveApiKey(
 			if (key) return key;
 		}
 		return undefined;
+	}
+
+	// Handle env:VAR_NAME format
+	if (value.startsWith("env:")) {
+		const envVar = value.slice(4);
+		const envValue = process.env[envVar];
+		if (!envValue) {
+			throw new Error(
+				`TTS provider "${provider}" requires API key from environment variable "${envVar}", ` +
+					`but it's not set. Please set ${envVar}=your-api-key.`
+			);
+		}
+		return envValue;
 	}
 
 	return value;
@@ -349,6 +365,65 @@ class OpenAIProvider implements TTSProvider {
 // ── ElevenLabs Provider ─────────────────────────────────────────
 
 /**
+ * Supported voice tags by ElevenLabs model.
+ * These tags are stripped or converted based on model capabilities.
+ */
+const ELEVEN_V3_AUDIO_TAGS = new Set([
+	"[laughs]",
+	"[laughs harder]",
+	"[starts laughing]",
+	"[wheezing]",
+	"[whispers]",
+	"[sighs]",
+	"[exhales]",
+	"[sarcastic]",
+	"[curious]",
+	"[excited]",
+	"[crying]",
+	"[snorts]",
+	"[mischievously]",
+	"[gasps]",
+	"[clears throat]",
+	"[short pause]",
+	"[pauses]",
+	"[applause]",
+	"[clapping]",
+	"[gunshot]",
+	"[explosion]",
+	"[swallows]",
+	"[gulps]",
+	"[sings]",
+	"[woo]",
+]);
+
+/**
+ * Audio tags that work well across all ElevenLabs models (conservative set).
+ * These are the only tags we allow when filtering is enabled.
+ */
+const CONSERVATIVE_AUDIO_TAGS = new Set([
+	"[laughs]",
+	"[giggles]",
+	"[sighs]",
+	"[gasps]",
+	"[clears throat]",
+]);
+
+function preprocessElevenLabsText(text: string, model: string): string {
+	const isV3 = model.includes("v3") || model.includes("eleven_turbo_v2_5");
+
+	if (isV3) {
+		return text;
+	}
+
+	const tagRegex = /\[[^\]]+\]/g;
+	let processed = text.replace(tagRegex, "");
+	processed = processed.replace(/\s+/g, " ").trim();
+	processed = processed.replace(/\n\s*\n/g, "\n").trim();
+
+	return processed;
+}
+
+/**
  * ElevenLabs TTS API provider.
  * Outputs MP3 by default, converts to OPUS for Telegram.
  */
@@ -390,7 +465,9 @@ class ElevenLabsProvider implements TTSProvider {
 	}
 
 	async synthesize(text: string): Promise<TTSResult> {
-		if (!text.trim()) {
+		const preprocessedText = preprocessElevenLabsText(text, this.model);
+
+		if (!preprocessedText.trim()) {
 			return { ok: false, error: "Text cannot be empty" };
 		}
 
@@ -398,7 +475,6 @@ class ElevenLabsProvider implements TTSProvider {
 		const opusPath = createTempPath(".ogg");
 
 		try {
-			// Call ElevenLabs TTS API
 			const response = await fetch(
 				`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`,
 				{
@@ -408,7 +484,7 @@ class ElevenLabsProvider implements TTSProvider {
 						"Content-Type": "application/json",
 					},
 					body: JSON.stringify({
-						text: text,
+						text: preprocessedText,
 						model_id: this.model,
 						voice_settings: {
 							speed: this.speed,
@@ -450,6 +526,153 @@ class ElevenLabsProvider implements TTSProvider {
 				/* ignore */
 			}
 			return { ok: false, error: `ElevenLabs TTS failed: ${err.message}` };
+		}
+	}
+
+	/**
+	 * Convert MP3 to OPUS format for Telegram voice messages.
+	 */
+	private convertToOpus(inputPath: string, outputPath: string): Promise<void> {
+		return new Promise((resolve, reject) => {
+			execFile(
+				"ffmpeg",
+				[
+					"-i",
+					inputPath,
+					"-c:a",
+					"libopus",
+					"-b:a",
+					"24k",
+					"-ar",
+					"24000",
+					"-y",
+					outputPath,
+				],
+				{ timeout: 30_000 },
+				(err, _stdout, stderr) => {
+					if (err) {
+						reject(new Error(`ffmpeg conversion failed: ${stderr?.trim() || err.message}`));
+						return;
+					}
+					resolve();
+				},
+			);
+		});
+	}
+}
+
+// ── xAI Provider ────────────────────────────────────────────────
+
+/**
+ * xAI TTS API provider.
+ * Supports voices: eve, ara, rex, sal, leo
+ * Outputs MP3 by default, converts to OPUS for Telegram.
+ *
+ * API endpoint: POST https://api.x.ai/v1/tts
+ * Docs: https://docs.x.ai/docs/guides/text-to-speech
+ */
+class XAIProvider implements TTSProvider {
+	private apiKey: string;
+	private voiceId: string;
+	private speed: number;
+	private language: string;
+
+	private constructor(
+		apiKey: string,
+		voiceId: string,
+		speed: number,
+		language: string,
+	) {
+		this.apiKey = apiKey;
+		this.voiceId = voiceId;
+		this.speed = speed;
+		this.language = language;
+	}
+
+	static async create(
+		config: TTSConfig,
+		modelRegistry?: ModelRegistry,
+	): Promise<XAIProvider> {
+		const key = await resolveApiKey(config.apiKey, "xai", modelRegistry);
+		if (!key) {
+			throw new Error(
+				"xAI TTS requires API key. " +
+					"Set XAI_API_KEY environment variable or configure apiKey in settings.json under pi-bridge TTS config.",
+			);
+		}
+		return new XAIProvider(
+			key,
+			config.voice || "eve", // Default: eve (energetic & upbeat)
+			config.speed ?? 1.0,
+			config.language || "en",
+		);
+	}
+
+	async synthesize(text: string): Promise<TTSResult> {
+		if (!text.trim()) {
+			return { ok: false, error: "Text cannot be empty" };
+		}
+
+		// xAI TTS has a 15,000 character limit per request
+		if (text.length > 15000) {
+			return { ok: false, error: `Text exceeds xAI TTS limit of 15,000 characters (got ${text.length})` };
+		}
+
+		const mp3Path = createTempPath(".mp3");
+		const opusPath = createTempPath(".ogg");
+
+		try {
+			const response = await fetch("https://api.x.ai/v1/tts", {
+				method: "POST",
+				headers: {
+					"Authorization": `Bearer ${this.apiKey}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					text: text,
+					voice_id: this.voiceId,
+					language: this.language,
+					output_format: {
+						codec: "mp3",
+						sample_rate: 24000,
+						bit_rate: 128000,
+					},
+				}),
+			});
+
+			if (!response.ok) {
+				const body = await response.text();
+				throw new Error(`xAI API error (${response.status}): ${body.slice(0, 200)}`);
+			}
+
+			// Save audio to file
+			const arrayBuffer = await response.arrayBuffer();
+			fs.writeFileSync(mp3Path, Buffer.from(arrayBuffer));
+
+			// Convert MP3 to OPUS for Telegram
+			await this.convertToOpus(mp3Path, opusPath);
+
+			// Clean up intermediate MP3 file
+			try {
+				fs.unlinkSync(mp3Path);
+			} catch {
+				/* ignore */
+			}
+
+			return { ok: true, audioPath: opusPath };
+		} catch (err: any) {
+			// Clean up on failure
+			try {
+				fs.unlinkSync(mp3Path);
+			} catch {
+				/* ignore */
+			}
+			try {
+				fs.unlinkSync(opusPath);
+			} catch {
+				/* ignore */
+			}
+			return { ok: false, error: `xAI TTS failed: ${err.message}` };
 		}
 	}
 

@@ -72,6 +72,19 @@ async function resolveApiKey(
 		return undefined;
 	}
 
+	// Handle env:VAR_NAME format
+	if (value.startsWith("env:")) {
+		const envVar = value.slice(4);
+		const envValue = process.env[envVar];
+		if (!envValue) {
+			throw new Error(
+				`Transcription provider "${provider}" requires API key from environment variable "${envVar}", ` +
+					`but it's not set. Please set ${envVar}=your-api-key.`
+			);
+		}
+		return envValue;
+	}
+
 	return value;
 }
 
@@ -92,8 +105,13 @@ function validateFile(filePath: string): TranscriptionResult | null {
 
 // ── Apple Provider ──────────────────────────────────────────────
 
-const SWIFT_HELPER_SRC = path.join(import.meta.dirname, "transcribe-apple-v2.swift");
-const SWIFT_HELPER_BIN = path.join(import.meta.dirname, "transcribe-apple-v2");
+const _dirname = typeof import.meta.dirname === "string"
+	? import.meta.dirname
+	: typeof __dirname !== "undefined"
+		? __dirname
+		: process.cwd();
+const SWIFT_HELPER_SRC = path.join(_dirname, "transcribe-apple-v2.swift");
+const SWIFT_HELPER_BIN = path.join(_dirname, "transcribe-apple-v2");
 
 class AppleProvider implements TranscriptionProvider {
 	private language: string | undefined;
