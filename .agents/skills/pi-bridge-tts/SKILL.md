@@ -1,4 +1,5 @@
 ---
+name: pi-bridge-tts
 description: Guidelines for generating voice messages via pi-bridge with xAI TTS and automatic speech tag optimization
 ---
 
